@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import sys
 
-from wave_logic_reference import Zig, analyze, run_zigzag, targets
+from wave_logic_reference import Zig, analyze, leg_dir, run_zigzag, targets
 
 EPS = 0.05
 DEPTH = 5
@@ -180,6 +180,59 @@ def _():
     assert labels(c)[5:] == ["A", "B", "C", "D", "E"], labels(c)
 
 
+@case("a correction may not finish above the top it is correcting")
+def _():
+    # after the 5-wave top at 165, price makes a HIGHER high at 175: whatever
+    # this is, it is not an A-B-C correction of that impulse
+    w, _ = pivots_of([115, 100, 120, 110, 150, 135, 165, 150, 175, 170, 172])
+    c = analyze(w, True, True, 25, 0)
+    top = w[5].price
+    for t in c.tags:
+        if t.corr:
+            assert w[t.pi].price < top, f"corrective label {t.txt} sits above the impulse top {top}"
+    assert "B" not in labels(c) and "C" not in labels(c), labels(c)
+
+
+@case("a running flat is still accepted")
+def _():
+    # C ends above the low of A, but the whole correction stays below the top
+    w, _ = pivots_of([115, 100, 120, 110, 150, 135, 165, 145, 162, 150, 156])
+    c = analyze(w, True, True, 25, 0)
+    assert labels(c) == ["1", "2", "3", "4", "5", "A", "B", "C"], labels(c)
+
+
+@case("an expanded flat needs the option, and stays rejected without it")
+def _():
+    # wave B pokes past the start of A, wave C still ends well below it
+    pts = [115, 100, 120, 110, 150, 135, 165, 150, 168, 140, 145]
+    w, _ = pivots_of(pts)
+    strict = analyze(w, True, True, 25, 0, allow_expanded=False)
+    assert "B" not in labels(strict), labels(strict)
+    loose = analyze(w, True, True, 25, 0, allow_expanded=True)
+    assert labels(loose) == ["1", "2", "3", "4", "5", "A", "B", "C"], labels(loose)
+    assert "Expanded flat" in loose.title, loose.title
+
+
+@case("a triangle that drifts above the top is not a triangle")
+def _():
+    w, _ = pivots_of([115, 100, 120, 110, 150, 135, 165, 145, 170, 150, 168, 155, 160])
+    c = analyze(w, True, True, 25, 0)
+    assert c.phase != "triangle", (c.phase, labels(c))
+    for t in c.tags:
+        if t.corr:
+            assert w[t.pi].price < w[5].price, labels(c)
+
+
+@case("unresolved structure after a correction is left unlabelled")
+def _():
+    # clean impulse, clean A-B-C, then chop that is neither an impulse nor a
+    # readable correction: the script must not invent W-X-Y labels for it
+    w, _ = pivots_of([115, 100, 120, 110, 150, 135, 165, 140, 155, 128, 133, 129, 134])
+    c = analyze(w, True, True, 25, 0)
+    assert "W" not in labels(c) and "X" not in labels(c) and "Y" not in labels(c), labels(c)
+    assert labels(c)[:8] == ["1", "2", "3", "4", "5", "A", "B", "C"], labels(c)
+
+
 @case("nothing is forced when the structure is unreadable")
 def _():
     w, _ = pivots_of([100, 101, 100, 101, 100])
@@ -251,6 +304,16 @@ def _():
             assert all(0 < i < len(w) for i in idx), (idx, len(w))
             assert idx == sorted(idx) and len(set(idx)) == len(idx), idx
             assert 0.0 <= c.conf <= 100.0, c.conf
+            # no corrective label may sit past the move it is correcting
+            corr = [t for t in c.tags if t.corr]
+            if corr:
+                a = corr[0].pi - 1
+                d = leg_dir(w, a)
+                la = abs(w[a + 1].price - w[a].price)
+                for t in corr:
+                    assert d * w[t.pi].price > d * w[a].price - 0.06 * la, (
+                        f"{t.txt} at {w[t.pi].price} is past the start {w[a].price}"
+                    )
             lv, tx, inval = targets(w, c)
             assert len(lv) == len(tx)
             assert all(math.isfinite(v) for v in lv), lv

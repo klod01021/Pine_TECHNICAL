@@ -18,9 +18,13 @@ Source: [`indicators/elliott_wave_auto_counter.pine`](../indicators/elliott_wave
 
 3. **Guideline scoring.** Surviving candidates are scored on how closely each leg matches the usual Fibonacci relationships: wave 2 retracing 0.382-0.786 of wave 1, wave 3 extending 1.0-4.236, wave 4 retracing 0.236-0.618 of wave 3, wave 5 relating 0.382-1.618 to wave 1, plus the guideline of alternation, which rewards a shallow wave 2 pairing with a deep wave 4 or the reverse. Each leg gets a Gaussian proximity score to the nearest ideal ratio, and the mean becomes the **fib fit** shown in the panel. Counts that need a diagonal are multiplied by 0.80 and truncated fifths by 0.85, so an unusual structure must clearly beat a textbook one to win.
 
-4. **Choosing the count.** The scanner ranks every valid complete impulse by `fib fit - 0.015 x (swings since it ended)`. The recency term is small on purpose: a clean older count is not displaced by a poor newer one that merely ends further to the right. Whatever follows the winning impulse is labelled as a correction, and if that correction is already over, the impulse building on top of it is labelled too. With no complete impulse anywhere, the script falls back to the longest partial impulse ending on the newest swing, then to a plain A-B-C, and finally shows "No valid count" rather than forcing labels onto noise.
+4. **Corrections.** A correction is held to three tests of its own: wave B may retrace at most 105% of wave A, or 138.2% with expanded flats enabled; wave C must run 0.382-4.236 of wave A; and a completed A-B-C **must finish on the correcting side of where it started**. That last test is what stops a rally past the wave 5 top being dressed up as an A-B-C. Contracting triangles are held to the same containment rule: every corner must stay on the correcting side of the start.
 
-5. **Two degrees.** The whole process runs twice: once at your pivot depth, and once at `depth x lower degree size` for the sub-waves, drawn smaller and faded.
+   Only the part of the correction that validates is labelled. The script tries A-B-C, then A-B, then A, and labels the longest one that passes; the remaining swings stay bare and the panel says the structure past it is unresolved. Nothing is labelled W-X-Y, because a complex correction cannot be identified reliably from swing geometry alone and a wrong label is worse than none.
+
+5. **Choosing the count.** The scanner ranks every valid complete impulse by `fib fit - 0.015 x (swings since it ended)`. The recency term is small on purpose: a clean older count is not displaced by a poor newer one that merely ends further to the right. Whatever follows the winning impulse is labelled as a correction, and if that correction is complete, the impulse building on top of it is labelled too. With no complete impulse anywhere, the script falls back to the longest partial impulse ending on the newest swing, then to a plain A-B-C, and finally shows "No valid count" rather than forcing labels onto noise.
+
+6. **Two degrees.** The whole process runs twice: once at your pivot depth, and once at `depth x lower degree size` for the sub-waves, drawn smaller and faded.
 
 ## Inputs
 
@@ -42,6 +46,7 @@ Source: [`indicators/elliott_wave_auto_counter.pine`](../indicators/elliott_wave
 | --- | --- | --- |
 | Allow diagonals | on | Permits wave 4 to overlap wave 1. Turn off for strict impulses only; the count then simply reports fewer complete impulses. |
 | Allow a truncated wave 5 | on | Permits a fifth wave that fails to exceed wave 3. |
+| Allow expanded flats | off | Lets wave B end past the start of wave A, so the correction prints a new extreme past the move it corrects. Genuine but uncommon; leaving it off is the quickest way to stop corrections being labelled through a new high or low. |
 | Minimum Fibonacci fit to accept | 0 | Raise to roughly 40-60 to see only well proportioned counts. |
 
 ### Display and targets

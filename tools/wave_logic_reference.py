@@ -192,7 +192,7 @@ def impulse_fit(w, s, legs, allow_diag, allow_trunc):
     return ok, sc, dg
 
 
-def corrective_fit(w, s, legs):
+def corrective_fit(w, s, legs, allow_expanded=False):
     n = len(w)
     ok = s >= 0 and 1 <= legs <= 3 and (s + legs) <= (n - 1)
     d = q0 = q1 = q2 = q3 = la = rb = rc = 0.0
@@ -206,7 +206,10 @@ def corrective_fit(w, s, legs):
     if ok and legs >= 2:
         q2 = d * w[s + 2].price
         rb = (q1 - q2) / la
-        ok = 0.1 < rb <= 1.382
+        # Wave B beyond the start of wave A is an expanded flat: real, but
+        # uncommon enough that it has to be asked for. Without it a correction
+        # can never print a new extreme past the move it is correcting.
+        ok = 0.1 < rb <= (1.382 if allow_expanded else 1.05)
         if ok:
             total += fit4(rb, 0.5, 0.618, 0.786, 1.0)
             cnt += 1
@@ -214,11 +217,16 @@ def corrective_fit(w, s, legs):
     if ok and legs >= 3:
         q3 = d * w[s + 3].price
         rc = (q3 - q2) / la
-        ok = 0.382 <= rc <= 4.236
+        # A completed correction must finish on the correcting side of where it
+        # began, otherwise the net move is with the trend and this is no
+        # correction at all.
+        ok = 0.382 <= rc <= 4.236 and q3 > q0
         if ok:
             total += fit4(rc, 0.618, 1.0, 1.618, 2.618)
             cnt += 1
     sc = total / cnt if (ok and cnt > 0) else 0.0
+    if rb > 1.0:
+        sc *= 0.85
     return ok, sc, knd
 
 
@@ -235,11 +243,17 @@ def triangle_fit(w, s, legs):
     if ok and legs == 5:
         e5 = abs(w[s + 5].price - w[s + 4].price)
         ok = e5 < e3 and e5 > 0
+    if ok:
+        # every corner has to stay on the correcting side of the start, so a
+        # triangle can never drift past the move it is correcting
+        d = leg_dir(w, s)
+        q0 = d * w[s].price
+        ok = all(d * w[s + k].price > q0 for k in range(1, legs + 1))
     return ok
 
 
 # ── the count ────────────────────────────────────────────────────────────────
-def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", has_prov=False) -> Count:
+def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", has_prov=False, allow_expanded=False) -> Count:
     c = Count(tags=[])
     n = len(w)
     i_last = n - 1
@@ -274,16 +288,26 @@ def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", 
                 c.phase, c.legs, c.anchor = "triangle", tri_legs, e
                 c.title = "Contracting triangle after the impulse"
             else:
-                cl = min(rem, 3)
+                # Label only as much of the correction as actually validates:
+                # try A-B-C, then A-B, then A. Anything past that is left bare
+                # rather than dressed up in letters it has not earned.
+                cl, sc_c, knd = 0, 0.0, "Correction"
+                for t in range(min(rem, 3), 0, -1):
+                    if cl == 0:
+                        ok_t, sc_t, knd_t = corrective_fit(w, e, t, allow_expanded)
+                        if ok_t:
+                            cl, sc_c, knd = t, sc_t, knd_t
                 for k in range(1, cl + 1):
                     c.tags.append(Tag(e + k, wave_txt(k, True, sty), True, has_prov and e + k == i_last))
-                ok_c, sc_c, knd = corrective_fit(w, e, cl)
                 c.phase, c.legs, c.anchor = "corrective", cl, e
-                c.conf = sc_c * 100 if ok_c else c.conf
-                c.title = (knd if ok_c else "Correction") + (
+                if cl >= 2:
+                    c.conf = sc_c * 100
+                c.title = knd + (
                     " in progress, wave " + wave_txt(cl + 1, True, sty) if cl < 3 else " complete"
                 )
-                if rem > 3:
+                if cl < 3 and rem > cl:
+                    c.title += ", structure past it unresolved"
+                if cl == 3 and rem > 3:
                     s2 = e + 3
                     lg2 = min(rem - 3, 5)
                     ok2, sc2, dg2 = impulse_fit(w, s2, lg2, allow_diag, allow_trunc)
@@ -296,11 +320,7 @@ def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", 
                         c.title = ("New impulse " + ("up" if dir2 == 1 else "down") + ", wave "
                                    + wave_txt(min(lg2 + 1, 5), False, sty) + " in progress")
                     else:
-                        lg3 = min(rem - 3, 3)
-                        for k in range(1, lg3 + 1):
-                            c.tags.append(Tag(s2 + k, cplx_txt(k), True, has_prov and s2 + k == i_last))
-                        c.phase, c.legs, c.anchor = "complex", lg3, s2
-                        c.title = "Complex correction (W-X-Y)"
+                        c.title += ", structure past it unresolved"
     else:
         lg, sc0, dg0 = 0, 0.0, False
         for i in range(0, 3):
@@ -320,7 +340,7 @@ def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", 
         elif n >= 3:
             cl = min(n - 1, 3)
             s = i_last - cl
-            ok_d, sc_d, knd_d = corrective_fit(w, s, cl)
+            ok_d, sc_d, knd_d = corrective_fit(w, s, cl, allow_expanded)
             if ok_d:
                 for k in range(1, cl + 1):
                     c.tags.append(Tag(s + k, wave_txt(k, True, sty), True, has_prov and s + k == i_last))

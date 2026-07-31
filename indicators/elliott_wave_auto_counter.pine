@@ -37,6 +37,7 @@ int    maxLook  = input.int(25, "Swings to scan for a count", minval = 6, maxval
 
 bool   diagOk   = input.bool(true, "Allow diagonals (wave 4 may overlap wave 1)", group = G_RUL, tooltip = "Leading and ending diagonals are the only impulse type where wave 4 is allowed to trade back into wave 1 territory. Turn off for strict impulse counting only.")
 bool   truncOk  = input.bool(true, "Allow a truncated wave 5", group = G_RUL, tooltip = "A truncation is a fifth wave that fails to exceed the end of wave 3.")
+bool   allowExp = input.bool(false, "Allow expanded flats (wave B past the start of wave A)", group = G_RUL, tooltip = "In an expanded flat wave B ends beyond the start of wave A, so the correction prints a new extreme past the move it is correcting. It is a genuine structure but an uncommon one, and leaving this off is the quickest way to stop corrections being labelled through a new high or low.")
 int    minConf  = input.int(0, "Minimum Fibonacci fit to accept (%)", minval = 0, maxval = 95, group = G_RUL, tooltip = "Counts that pass the hard rules but fit the Fibonacci guidelines worse than this are ignored, so the script keeps looking for a better structure.")
 
 bool   showZig  = input.bool(true, "Draw the swing skeleton", group = G_DSP)
@@ -82,7 +83,7 @@ type Tag
 type Count
     array<Tag> tags
     string     title
-    string     phase     // none | impulse | corrective | triangle | complex
+    string     phase     // none | impulse | corrective | triangle
     int        legs      // completed legs of the current structure
     int        anchor    // pivot index the current structure starts from
     float      conf      // Fibonacci fit, 0-100
@@ -117,9 +118,6 @@ waveTxt(int i, bool corr, string sty) =>
     else if sty == "circled 1 2 3 / A B C"
         t := corr ? hi : ci
     t
-
-cplxTxt(int i) =>
-    i == 1 ? "W" : i == 2 ? "X" : "Y"
 
 // Direction of the leg that leaves pivot i: a low is left upwards, a high downwards.
 legDir(array<Pivot> w, int i) =>
@@ -271,7 +269,7 @@ impulseFit(array<Pivot> w, int s, int legs, bool allowDiag, bool allowTrunc) =>
 
 // A-B-C. Corrections are far looser than impulses, so only the obviously
 // impossible shapes are rejected and the rest is scored.
-correctiveFit(array<Pivot> w, int s, int legs) =>
+correctiveFit(array<Pivot> w, int s, int legs, bool allowExpanded) =>
     int  n  = w.size()
     bool ok = s >= 0 and legs >= 1 and legs <= 3 and (s + legs) <= (n - 1)
     int   d    = 0
@@ -294,7 +292,10 @@ correctiveFit(array<Pivot> w, int s, int legs) =>
     if ok and legs >= 2
         q2 := d * w.get(s + 2).price
         rb := (q1 - q2) / la
-        ok := rb > 0.1 and rb <= 1.382                             // B may overshoot A only as an expanded flat
+        // Wave B beyond the start of wave A is an expanded flat: real, but
+        // uncommon enough that it has to be asked for. Without it a correction
+        // can never print a new extreme past the move it is correcting.
+        ok := rb > 0.1 and rb <= (allowExpanded ? 1.382 : 1.05)
         if ok
             acc += fit4(rb, 0.5, 0.618, 0.786, 1.0)
             cnt += 1
@@ -302,11 +303,16 @@ correctiveFit(array<Pivot> w, int s, int legs) =>
     if ok and legs >= 3
         q3 := d * w.get(s + 3).price
         rc := (q3 - q2) / la
-        ok := rc >= 0.382 and rc <= 4.236
+        // A completed correction must finish on the correcting side of where
+        // it began, otherwise the net move is with the trend and this is no
+        // correction at all.
+        ok := rc >= 0.382 and rc <= 4.236 and q3 > q0
         if ok
             acc += fit4(rc, 0.618, 1.0, 1.618, 2.618)
             cnt += 1
     float sc = ok and cnt > 0 ? acc / cnt : 0.0
+    if rb > 1.0
+        sc := sc * 0.85
     [ok, sc, knd]
 
 // Contracting triangle: every leg shorter than the leg two places before it.
@@ -327,6 +333,14 @@ triangleFit(array<Pivot> w, int s, int legs) =>
     if ok and legs == 5
         e5 := math.abs(w.get(s + 5).price - w.get(s + 4).price)
         ok := e5 < e3 and e5 > 0
+    if ok
+        // every corner has to stay on the correcting side of the start, so a
+        // triangle can never drift past the move it is correcting
+        int   dt = legDir(w, s)
+        float qs = dt * w.get(s).price
+        for k = 1 to legs
+            if dt * w.get(s + k).price <= qs
+                ok := false
     ok
 
 // ────────────────────────────────  the count  ────────────────────────────────
@@ -335,7 +349,7 @@ triangleFit(array<Pivot> w, int s, int legs) =>
 // impulse that is building on top of it. With no complete impulse anywhere,
 // fall back to the longest partial impulse - and failing that, an A-B-C - that
 // ends on the newest swing.
-analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, int look, float minFit, string sty, bool hasProv) =>
+analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, bool allowExp, int look, float minFit, string sty, bool hasProv) =>
     Count c  = Count.new(array.new<Tag>(), "No valid count", "none", 0, -1, 0.0, false)
     int   n  = w.size()
     int   iL = n - 1
@@ -380,16 +394,31 @@ analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, int look, float minFit,
                 c.anchor := e
                 c.title  := "Contracting triangle after the impulse"
             else
-                int cl = math.min(rem, 3)
-                for k = 1 to cl
-                    c.tags.push(Tag.new(e + k, waveTxt(k, true, sty), true, hasProv and e + k == iL))
-                [okc, scc, knd] = correctiveFit(w, e, cl)
+                // Label only as much of the correction as actually validates:
+                // try A-B-C, then A-B, then A. Anything past that is left bare
+                // rather than dressed up in letters it has not earned.
+                int    cl  = 0
+                float  scc = 0.0
+                string knd = "Correction"
+                for t = math.min(rem, 3) to 1
+                    if cl == 0
+                        [okT, scT, kndT] = correctiveFit(w, e, t, allowExp)
+                        if okT
+                            cl  := t
+                            scc := scT
+                            knd := kndT
+                if cl > 0
+                    for k = 1 to cl
+                        c.tags.push(Tag.new(e + k, waveTxt(k, true, sty), true, hasProv and e + k == iL))
                 c.phase  := "corrective"
                 c.legs   := cl
                 c.anchor := e
-                c.conf   := okc ? scc * 100 : c.conf
-                c.title  := (okc ? knd : "Correction") + (cl < 3 ? " in progress, wave " + waveTxt(cl + 1, true, sty) : " complete")
-                if rem > 3
+                if cl >= 2
+                    c.conf := scc * 100
+                c.title  := knd + (cl < 3 ? " in progress, wave " + waveTxt(cl + 1, true, sty) : " complete")
+                if cl < 3 and rem > cl
+                    c.title := c.title + ", structure past it unresolved"
+                if cl == 3 and rem > 3
                     int s2  = e + 3
                     int lg2 = math.min(rem - 3, 5)
                     [ok2, sc2, dg2] = impulseFit(w, s2, lg2, allowDiag, allowTrunc)
@@ -404,13 +433,7 @@ analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, int look, float minFit,
                         c.diag   := dg2
                         c.title  := "New impulse " + (dir2 == 1 ? "up" : "down") + ", wave " + waveTxt(math.min(lg2 + 1, 5), false, sty) + " in progress"
                     else
-                        int lg3 = math.min(rem - 3, 3)
-                        for k = 1 to lg3
-                            c.tags.push(Tag.new(s2 + k, cplxTxt(k), true, hasProv and s2 + k == iL))
-                        c.phase  := "complex"
-                        c.legs   := lg3
-                        c.anchor := s2
-                        c.title  := "Complex correction (W-X-Y)"
+                        c.title := c.title + ", structure past it unresolved"
     else
         // no complete impulse: take the longest partial one ending on the last swing
         int   lg  = 0
@@ -437,7 +460,7 @@ analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, int look, float minFit,
         else if n >= 3
             int cl = math.min(n - 1, 3)
             int s  = iL - cl
-            [okD, scD, kndD] = correctiveFit(w, s, cl)
+            [okD, scD, kndD] = correctiveFit(w, s, cl, allowExp)
             if okD
                 for k = 1 to cl
                     c.tags.push(Tag.new(s + k, waveTxt(k, true, sty), true, hasProv and s + k == iL))
@@ -531,7 +554,7 @@ targets(array<Pivot> w, Count c) =>
                 lv.push(p5 - d * 0.618 * tot)
                 tx.push("Retrace 0.618")
                 inval := p5
-        else if c.phase == "corrective" or c.phase == "complex"
+        else if c.phase == "corrective"
             if c.legs == 1
                 lv.push(p1 - d * 0.500 * l1)
                 tx.push("B 0.500 x A")
@@ -639,11 +662,11 @@ var Count cSub  = Count.new(array.new<Tag>(), "No valid count", "none", 0, -1, 0
 // Recount only when a swing changed (cheap) and on the live bar (for the
 // provisional swing), instead of on every historical bar.
 if zMain.changed or barstate.islast
-    cDisp := analyze(wDisp, diagOk, truncOk, maxLook, minConf, styMain, hpDisp)
+    cDisp := analyze(wDisp, diagOk, truncOk, allowExp, maxLook, minConf, styMain, hpDisp)
 if zMain.changed
-    cConf := analyze(wConf, diagOk, truncOk, maxLook, minConf, styMain, false)
+    cConf := analyze(wConf, diagOk, truncOk, allowExp, maxLook, minConf, styMain, false)
 if showSub and (zSub.changed or barstate.islast)
-    cSub := analyze(wSub, diagOk, truncOk, maxLook, minConf, stySub, hpSub)
+    cSub := analyze(wSub, diagOk, truncOk, allowExp, maxLook, minConf, stySub, hpSub)
 
 // ─────────────────────────────────  render  ──────────────────────────────────
 if barstate.islast

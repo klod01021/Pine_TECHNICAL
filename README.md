@@ -38,7 +38,7 @@ If you see too many small waves, raise the depth or raise the **Minimum swing = 
 ## Reading the chart
 
 - **Numbers 1-5 in the impulse colour** are a five wave move that passes all three hard Elliott rules.
-- **Letters A-B-C in the corrective colour** are the correction that followed it. A-B-C-D-E appears when the shape is a contracting triangle, and W-X-Y when the correction is too complex for a simple A-B-C.
+- **Letters A-B-C in the corrective colour** are the correction that followed it, and A-B-C-D-E when the shape is a contracting triangle. Only the part of the correction that actually validates gets a letter: if the structure stops making sense after A, you see `A` and nothing more, and the panel says the rest is unresolved. Empty space is the honest answer there.
 - **A label ending in `?` on a dashed leg** sits on the swing that has not confirmed yet. It is the script's best guess about the wave in progress and it will move.
 - **Dotted lines to the right** are the Fibonacci targets for the wave that is currently unfolding, with the shaded box marking the whole target zone.
 - **The dashed red line** is the invalidation: the price that would break the count being shown, which is where a stop belongs if you are trading the count.
@@ -65,6 +65,7 @@ Alerts are driven by the confirmed count only, never by the provisional `?` swin
 Elliott Wave counting is subjective. Two analysts label the same chart differently, and so will this script when you change the pivot depth. What it does honestly:
 
 - It never shows a count that breaks a hard rule (wave 2 beyond the start of wave 1, wave 3 shortest of 1/3/5, wave 4 overlapping wave 1 outside a diagonal).
+- A correction can never be labelled through the top or bottom it is correcting. If price makes a new extreme past the end of wave 5, that is not an A-B-C and the letters are withheld rather than stretched over it. If you *want* textbook expanded flats, where wave B does end past the start of wave A, turn on **Allow expanded flats**.
 - It prefers textbook structures, and only falls back to a diagonal or a truncation when nothing cleaner fits.
 - It tells you how well the count matches the Fibonacci guidelines instead of implying certainty.
 
