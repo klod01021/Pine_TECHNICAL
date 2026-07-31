@@ -1,6 +1,6 @@
-# Elliott Wave Auto-Counter v1 - reference
+# Elliott Wave Auto-Counter v2 - reference
 
-Source: [`indicators/elliott_wave_auto_counter_v1.pine`](../indicators/elliott_wave_auto_counter_v1.pine) (Pine Script v6, overlay indicator).
+Source: [`indicators/elliott_wave_auto_counter_v2.pine`](../indicators/elliott_wave_auto_counter_v2.pine) (Pine Script v6, overlay indicator).
 
 ## How the count is produced
 
@@ -125,3 +125,23 @@ A swing cannot be known until `depth` bars have passed, so the most recent label
 ## Keeping the logic honest
 
 `tools/wave_logic_reference.py` is a line-for-line Python port of the counting logic, and `tools/test_wave_logic.py` drives it with synthetic impulses, corrections, triangles, deliberate rule violations, and 600 random walks that assert the swing and label invariants. Run `python3 tools/test_wave_logic.py` after any change to a rule, and mirror the change in both files.
+
+## Version history
+
+### v2
+
+Everything in this release came out of counts that looked wrong on a chart. The through-line is that v1 was too willing to letter a move as a correction.
+
+- **A correction can no longer be labelled through the extreme it corrects.** A-B-C labels used to be drawn before the corrective test ran, and survived its rejection, so a rally past the wave 5 top could be lettered with wave B above that top.
+- **A correction must hold the origin of the impulse it corrects.** Past 100% retracement it is not correcting anything, so it is counted as an impulse in the other direction instead.
+- **A correction must not outrun its impulse.** The first leg after an impulse is compared with the mean velocity of waves 1, 3 and 5; a leg covering ground faster than the trend did is read as a trend, not a pause.
+- **Subdivision decides genuine ambiguities.** Down-up-down after a top fits A-B-C and 1-2-3 equally well and often scores identically. The lower degree now breaks the tie the way Elliott always broke it: five sub-waves impulsive, three corrective.
+- **Only the part of a correction that validates is labelled**, shrinking from A-B-C to A-B to A, with the remainder left bare rather than lettered. The unvalidated W-X-Y path is gone.
+- **Diagonals must be real wedges.** Overlap alone used to qualify, which let two unrelated moves be stapled together into a "diagonal" that then outranked the true count.
+- **A new impulse is recognised after a correction of any length**, so a trend resuming from a single sharp pullback is counted rather than left blank.
+- **Counts are ranked on quality** with a small recency bonus, instead of the most recent valid count winning outright.
+- **Targets are drawn as a Fibonacci grid** with a primary target zone, and **time projection** was added, so the drawing says where the wave should end and roughly when.
+
+### v1
+
+First release: swing detection, the three hard impulse rules, Fibonacci scoring, A-B-C and triangle labelling, two degrees, price targets, invalidation and alerts.

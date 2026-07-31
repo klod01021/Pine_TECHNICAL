@@ -1,5 +1,5 @@
 """Line-for-line Python port of the counting logic in
-``indicators/elliott_wave_auto_counter_v1.pine``.
+``indicators/elliott_wave_auto_counter_v2.pine``.
 
 Pine Script cannot be executed outside TradingView, so this module mirrors the
 zig-zag engine, the rule tests and the labelling strategy exactly as they are
