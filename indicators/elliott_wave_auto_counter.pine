@@ -1,0 +1,715 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+//
+// ═════════════════════════════════════════════════════════════════════════════
+//  ELLIOTT WAVE AUTO-COUNTER
+//
+//  1. Builds a noise filtered swing (zig-zag) skeleton of price.
+//  2. Scans the most recent swings for a five wave impulse that satisfies the
+//     three hard Elliott rules, then labels the correction that follows it.
+//  3. Scores every candidate against the classic Fibonacci guidelines and
+//     reports that fit as a confidence figure.
+//  4. Projects Fibonacci targets for the wave that is currently unfolding and
+//     draws the price that would invalidate the count.
+//
+//  Read before trading it: wave counting is not a solved problem. Any two
+//  analysts label the same chart differently, and so will this script when you
+//  change the pivot depth. The count is recalculated whenever a new swing is
+//  confirmed, which means labels on the right hand edge WILL change. Treat the
+//  output as a structured, rule checked hypothesis - not as a prediction.
+// ═════════════════════════════════════════════════════════════════════════════
+
+indicator("Elliott Wave Auto-Counter", "EW Auto-Counter", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 100, max_bars_back = 500)
+
+// ─────────────────────────────────  inputs  ──────────────────────────────────
+const string G_DET = "Swing detection"
+const string G_RUL = "Elliott rules"
+const string G_DSP = "Display"
+const string G_TGT = "Targets and invalidation"
+
+int    depthIn  = input.int(20, "Pivot depth (bars each side)", minval = 2, maxval = 200, group = G_DET, tooltip = "The core sensitivity control. A swing is only recognised once 'depth' bars on both sides fail to exceed it, so a larger depth returns fewer and larger waves. 8-12 for intraday scalping, 20-30 for swing trading, 40+ for weekly charts.")
+string filtMode = input.string("ATR", "Noise filter", options = ["ATR", "Percent", "None"], group = G_DET, tooltip = "Minimum size a counter-swing must have before it is accepted as a new pivot. Filters out the small wiggles that would otherwise be counted as waves.")
+float  atrMult  = input.float(2.0, "Minimum swing = ATR x", minval = 0.0, step = 0.1, group = G_DET)
+int    atrLen   = input.int(14, "ATR length", minval = 1, group = G_DET)
+float  pctMove  = input.float(3.0, "Minimum swing (%)", minval = 0.0, step = 0.1, group = G_DET)
+bool   useProv  = input.bool(true, "Include the live, unconfirmed swing", group = G_DET, tooltip = "Adds the running high/low since the last confirmed pivot as a provisional wave end, so the wave in progress is visible. Provisional labels are marked with '?' and a dashed leg.")
+int    maxLook  = input.int(25, "Swings to scan for a count", minval = 6, maxval = 55, group = G_DET)
+
+bool   diagOk   = input.bool(true, "Allow diagonals (wave 4 may overlap wave 1)", group = G_RUL, tooltip = "Leading and ending diagonals are the only impulse type where wave 4 is allowed to trade back into wave 1 territory. Turn off for strict impulse counting only.")
+bool   truncOk  = input.bool(true, "Allow a truncated wave 5", group = G_RUL, tooltip = "A truncation is a fifth wave that fails to exceed the end of wave 3.")
+int    minConf  = input.int(0, "Minimum Fibonacci fit to accept (%)", minval = 0, maxval = 95, group = G_RUL, tooltip = "Counts that pass the hard rules but fit the Fibonacci guidelines worse than this are ignored, so the script keeps looking for a better structure.")
+
+bool   showZig  = input.bool(true, "Draw the swing skeleton", group = G_DSP)
+bool   showSub  = input.bool(true, "Count a lower degree as well", group = G_DSP)
+float  subRatio = input.float(0.35, "Lower degree size (x main)", minval = 0.1, maxval = 0.9, step = 0.05, group = G_DSP)
+string styMain  = input.string("(1) (2) (3) / (a) (b) (c)", "Main degree notation", options = ["1 2 3 4 5 / A B C", "(1) (2) (3) / (a) (b) (c)", "I II III IV V / A B C", "i ii iii iv v / a b c", "circled 1 2 3 / A B C"], group = G_DSP)
+string stySub   = input.string("1 2 3 4 5 / A B C", "Lower degree notation", options = ["1 2 3 4 5 / A B C", "(1) (2) (3) / (a) (b) (c)", "I II III IV V / A B C", "i ii iii iv v / a b c", "circled 1 2 3 / A B C"], group = G_DSP)
+string szMain   = input.string("normal", "Main label size", options = ["tiny", "small", "normal", "large"], group = G_DSP)
+string szSub    = input.string("tiny", "Lower degree label size", options = ["tiny", "small", "normal", "large"], group = G_DSP)
+color  cImp     = input.color(#2962ff, "Impulse colour", group = G_DSP)
+color  cCor     = input.color(#ff6d00, "Corrective colour", group = G_DSP)
+color  cZig     = input.color(#78909c, "Swing skeleton colour", group = G_DSP)
+bool   showTbl  = input.bool(true, "Show the count panel", group = G_DSP)
+
+bool   showTgt  = input.bool(true, "Project the next wave", group = G_TGT)
+int    projBars = input.int(30, "Projection length (bars)", minval = 5, maxval = 300, group = G_TGT)
+color  cTgt     = input.color(#00897b, "Target colour", group = G_TGT)
+color  cInv     = input.color(#d50000, "Invalidation colour", group = G_TGT)
+bool   alertsOn = input.bool(true, "Fire alert() on every count change", group = G_TGT)
+
+int MAX_PIVOTS = 60
+
+// ──────────────────────────────────  types  ──────────────────────────────────
+type Pivot
+    int   bar
+    float price
+    int   dir            // +1 = swing high, -1 = swing low
+
+type Zig
+    array<Pivot> pv
+    bool  changed  = false
+    float runHi    = na
+    int   runHiBar = na
+    float runLo    = na
+    int   runLoBar = na
+
+type Tag
+    int    pi            // index into the pivot array
+    string txt
+    bool   corr          // corrective label?
+    bool   prov          // sits on the unconfirmed swing?
+
+type Count
+    array<Tag> tags
+    string     title
+    string     phase     // none | impulse | corrective | triangle | complex
+    int        legs      // completed legs of the current structure
+    int        anchor    // pivot index the current structure starts from
+    float      conf      // Fibonacci fit, 0-100
+    bool       diag      // wave 4 overlaps wave 1
+
+// ───────────────────────────────  small helpers  ─────────────────────────────
+// Gaussian proximity to a Fibonacci ratio: 1.0 is a perfect hit, ~0 is far off.
+fit(float x, float ideal) =>
+    float tol = math.max(0.08, ideal * 0.18)
+    math.exp(-math.pow((x - ideal) / tol, 2.0))
+
+fit4(float x, float a, float b, float c, float d) =>
+    math.max(math.max(fit(x, a), fit(x, b)), math.max(fit(x, c), fit(x, d)))
+
+szOf(string s) =>
+    s == "tiny" ? size.tiny : s == "small" ? size.small : s == "large" ? size.large : size.normal
+
+waveTxt(int i, bool corr, string sty) =>
+    string up = str.tostring(i)
+    string lo = i == 1 ? "a" : i == 2 ? "b" : i == 3 ? "c" : i == 4 ? "d" : "e"
+    string hi = i == 1 ? "A" : i == 2 ? "B" : i == 3 ? "C" : i == 4 ? "D" : "E"
+    string rn = i == 1 ? "I" : i == 2 ? "II" : i == 3 ? "III" : i == 4 ? "IV" : "V"
+    string rl = i == 1 ? "i" : i == 2 ? "ii" : i == 3 ? "iii" : i == 4 ? "iv" : "v"
+    string ci = i == 1 ? "①" : i == 2 ? "②" : i == 3 ? "③" : i == 4 ? "④" : "⑤"
+    string t = corr ? hi : up
+    if sty == "(1) (2) (3) / (a) (b) (c)"
+        t := "(" + (corr ? lo : up) + ")"
+    else if sty == "I II III IV V / A B C"
+        t := corr ? hi : rn
+    else if sty == "i ii iii iv v / a b c"
+        t := corr ? lo : rl
+    else if sty == "circled 1 2 3 / A B C"
+        t := corr ? hi : ci
+    t
+
+cplxTxt(int i) =>
+    i == 1 ? "W" : i == 2 ? "X" : "Y"
+
+// Direction of the leg that leaves pivot i: a low is left upwards, a high downwards.
+legDir(array<Pivot> w, int i) =>
+    w.get(i).dir == -1 ? 1 : -1
+
+// ───────────────────────────  swing (zig-zag) engine  ────────────────────────
+method addPivot(Zig z, int b, float p, int d, float minMove) =>
+    int n = z.pv.size()
+    if n == 0
+        z.pv.push(Pivot.new(b, p, d))
+        z.changed := true
+    else
+        Pivot lp = z.pv.get(n - 1)
+        if lp.dir == d
+            // same direction: the more extreme point owns the swing
+            if (d == 1 and p > lp.price) or (d == -1 and p < lp.price)
+                lp.bar   := b
+                lp.price := p
+                z.changed := true
+        else if b > lp.bar and math.abs(p - lp.price) >= minMove
+            z.pv.push(Pivot.new(b, p, d))
+            z.changed := true
+    if z.pv.size() > MAX_PIVOTS
+        Pivot drop = z.pv.shift()
+        drop.dir
+    z.changed
+
+method step(Zig z, int depth, float minMove) =>
+    z.changed := false
+    float ph  = ta.pivothigh(high, depth, depth)
+    float pl  = ta.pivotlow(low, depth, depth)
+    float wHi = ta.highest(high, depth + 1)
+    float wLo = ta.lowest(low, depth + 1)
+    int   oHi = ta.highestbars(high, depth + 1)
+    int   oLo = ta.lowestbars(low, depth + 1)
+    int   pb  = bar_index - depth
+    if not na(ph)
+        z.addPivot(pb, ph, 1, minMove)
+    if not na(pl)
+        z.addPivot(pb, pl, -1, minMove)
+    // Running extremes since the last pivot, used for the provisional swing.
+    // On a change they are re-seeded from the window that starts at the pivot
+    // bar, because a pivot is only confirmed 'depth' bars after it printed.
+    if (z.changed or na(z.runHi)) and not na(oHi) and not na(oLo)
+        z.runHi    := wHi
+        z.runHiBar := bar_index + oHi
+        z.runLo    := wLo
+        z.runLoBar := bar_index + oLo
+    else
+        if high > z.runHi
+            z.runHi    := high
+            z.runHiBar := bar_index
+        if low < z.runLo
+            z.runLo    := low
+            z.runLoBar := bar_index
+    z.pv.size()
+
+// Confirmed pivots, optionally plus the swing that is still forming.
+buildWork(Zig z, bool withProv) =>
+    array<Pivot> w = array.copy(z.pv)
+    bool hp = false
+    int  n  = w.size()
+    if withProv and n > 0
+        Pivot lp = w.get(n - 1)
+        if lp.dir == -1 and not na(z.runHiBar) and z.runHiBar > lp.bar and z.runHi > lp.price
+            w.push(Pivot.new(z.runHiBar, z.runHi, 1))
+            hp := true
+        else if lp.dir == 1 and not na(z.runLoBar) and z.runLoBar > lp.bar and z.runLo < lp.price
+            w.push(Pivot.new(z.runLoBar, z.runLo, -1))
+            hp := true
+    [w, hp]
+
+// ──────────────────────────────  pattern tests  ──────────────────────────────
+// Every test works on q = dir * price, which turns a bear structure into the
+// mirror of a bull one so a single set of comparisons covers both.
+//
+// Hard rules (a count that breaks one is rejected outright):
+//   R1  wave 2 never retraces more than 100% of wave 1
+//   R2  wave 3 is never the shortest of waves 1, 3 and 5
+//   R3  wave 4 never enters wave 1 territory (diagonals excepted)
+// Everything else below is a guideline and only moves the confidence score.
+impulseFit(array<Pivot> w, int s, int legs, bool allowDiag, bool allowTrunc) =>
+    int  n  = w.size()
+    bool ok = s >= 0 and legs >= 1 and legs <= 5 and (s + legs) <= (n - 1)
+    int   d   = 0
+    float q0  = na
+    float q1  = na
+    float q2  = na
+    float q3  = na
+    float q4  = na
+    float q5  = na
+    float l1  = na
+    float l2  = na
+    float l3  = na
+    float l4  = na
+    float l5  = na
+    float acc = 0.0
+    int   cnt = 0
+    bool  dg  = false
+    if ok
+        d  := legDir(w, s)
+        q0 := d * w.get(s).price
+        q1 := d * w.get(s + 1).price
+        l1 := q1 - q0
+        ok := l1 > 0
+    if ok and legs >= 2
+        q2 := d * w.get(s + 2).price
+        l2 := q1 - q2
+        ok := q2 > q0 and l2 > 0                                   // R1
+        if ok
+            acc += fit4(l2 / l1, 0.382, 0.5, 0.618, 0.786)
+            cnt += 1
+    if ok and legs >= 3
+        q3 := d * w.get(s + 3).price
+        l3 := q3 - q2
+        ok := q3 > q1                                              // wave 3 must clear wave 1
+        if ok
+            acc += fit4(l3 / l1, 1.0, 1.618, 2.618, 4.236)
+            cnt += 1
+    if ok and legs >= 4
+        q4 := d * w.get(s + 4).price
+        l4 := q3 - q4
+        dg := q4 <= q1
+        ok := l4 > 0 and (allowDiag ? q4 > q2 : q4 > q1)           // R3
+        if ok
+            acc += fit4(l4 / l3, 0.236, 0.382, 0.5, 0.618)
+            cnt += 1
+            // Guideline of alternation: a shallow wave 2 pairs with a deep
+            // wave 4 and vice versa, so reward the two being different.
+            acc += (math.abs(l2 / l1 - l4 / l3) > 0.15 ? 1.0 : 0.4)
+            cnt += 1
+    bool tr = false
+    if ok and legs >= 5
+        q5 := d * w.get(s + 5).price
+        l5 := q5 - q4
+        tr := q5 <= q3
+        ok := l5 > 0 and (allowTrunc or not tr) and not (l3 < l1 and l3 < l5)    // R2
+        if ok
+            acc += fit4(l5 / l1, 0.382, 0.618, 1.0, 1.618)
+            cnt += 1
+    float sc = ok and cnt > 0 ? acc / cnt : 0.0
+    // Diagonals and truncations are real but uncommon, so a count that needs
+    // one of them has to beat a textbook count clearly before it is preferred.
+    if dg
+        sc := sc * 0.80
+    if tr
+        sc := sc * 0.85
+    [ok, sc, dg]
+
+// A-B-C. Corrections are far looser than impulses, so only the obviously
+// impossible shapes are rejected and the rest is scored.
+correctiveFit(array<Pivot> w, int s, int legs) =>
+    int  n  = w.size()
+    bool ok = s >= 0 and legs >= 1 and legs <= 3 and (s + legs) <= (n - 1)
+    int   d    = 0
+    float q0   = na
+    float q1   = na
+    float q2   = na
+    float q3   = na
+    float la   = na
+    float rb   = na
+    float rc   = na
+    float acc  = 0.0
+    int   cnt  = 0
+    string knd = "Correction"
+    if ok
+        d  := legDir(w, s)
+        q0 := d * w.get(s).price
+        q1 := d * w.get(s + 1).price
+        la := q1 - q0
+        ok := la > 0
+    if ok and legs >= 2
+        q2 := d * w.get(s + 2).price
+        rb := (q1 - q2) / la
+        ok := rb > 0.1 and rb <= 1.382                             // B may overshoot A only as an expanded flat
+        if ok
+            acc += fit4(rb, 0.5, 0.618, 0.786, 1.0)
+            cnt += 1
+            knd := rb <= 0.618 ? "Zigzag" : rb <= 0.9 ? "Zigzag / flat" : rb <= 1.05 ? "Flat" : "Expanded flat"
+    if ok and legs >= 3
+        q3 := d * w.get(s + 3).price
+        rc := (q3 - q2) / la
+        ok := rc >= 0.382 and rc <= 4.236
+        if ok
+            acc += fit4(rc, 0.618, 1.0, 1.618, 2.618)
+            cnt += 1
+    float sc = ok and cnt > 0 ? acc / cnt : 0.0
+    [ok, sc, knd]
+
+// Contracting triangle: every leg shorter than the leg two places before it.
+triangleFit(array<Pivot> w, int s, int legs) =>
+    int  n  = w.size()
+    bool ok = s >= 0 and legs >= 4 and legs <= 5 and (s + legs) <= (n - 1)
+    float e1 = na
+    float e2 = na
+    float e3 = na
+    float e4 = na
+    float e5 = na
+    if ok
+        e1 := math.abs(w.get(s + 1).price - w.get(s).price)
+        e2 := math.abs(w.get(s + 2).price - w.get(s + 1).price)
+        e3 := math.abs(w.get(s + 3).price - w.get(s + 2).price)
+        e4 := math.abs(w.get(s + 4).price - w.get(s + 3).price)
+        ok := e3 < e1 and e4 < e2 and e3 > 0 and e4 > 0
+    if ok and legs == 5
+        e5 := math.abs(w.get(s + 5).price - w.get(s + 4).price)
+        ok := e5 < e3 and e5 > 0
+    ok
+
+// ────────────────────────────────  the count  ────────────────────────────────
+// Strategy: find the most recent COMPLETE five wave impulse, label what came
+// after it as a correction, and if the correction is already over, label the
+// impulse that is building on top of it. With no complete impulse anywhere,
+// fall back to the longest partial impulse - and failing that, an A-B-C - that
+// ends on the newest swing.
+analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, int look, float minFit, string sty, bool hasProv) =>
+    Count c  = Count.new(array.new<Tag>(), "No valid count", "none", 0, -1, 0.0, false)
+    int   n  = w.size()
+    int   iL = n - 1
+    int   best   = -1
+    float bestSc = 0.0
+    bool  bestDg = false
+    float bestRk = -1000000.0
+    if n >= 6
+        int sFrom = math.max(0, n - 1 - look)
+        if n - 6 >= sFrom
+            for s = sFrom to n - 6
+                [okA, scA, dgA] = impulseFit(w, s, 5, allowDiag, allowTrunc)
+                // Rank on quality with a small bonus for being the more recent
+                // structure, so a clean older count is not displaced by a poor
+                // newer one that merely ends further to the right.
+                float rank = scA - 0.015 * (iL - (s + 5))
+                if okA and scA * 100 >= minFit and rank > bestRk
+                    best   := s
+                    bestSc := scA
+                    bestDg := dgA
+                    bestRk := rank
+    if best >= 0
+        int dirI = legDir(w, best)
+        c.phase  := "impulse"
+        c.legs   := 5
+        c.anchor := best
+        c.conf   := bestSc * 100
+        c.diag   := bestDg
+        c.title  := (bestDg ? "Diagonal " : "Impulse ") + (dirI == 1 ? "up" : "down") + " complete"
+        for k = 1 to 5
+            c.tags.push(Tag.new(best + k, waveTxt(k, false, sty), false, hasProv and best + k == iL))
+        int e   = best + 5
+        int rem = iL - e
+        if rem > 0
+            int  triLegs = math.min(rem, 5)
+            bool tri     = rem >= 4 and triangleFit(w, e, triLegs)
+            if tri
+                for k = 1 to triLegs
+                    c.tags.push(Tag.new(e + k, waveTxt(k, true, sty), true, hasProv and e + k == iL))
+                c.phase  := "triangle"
+                c.legs   := triLegs
+                c.anchor := e
+                c.title  := "Contracting triangle after the impulse"
+            else
+                int cl = math.min(rem, 3)
+                for k = 1 to cl
+                    c.tags.push(Tag.new(e + k, waveTxt(k, true, sty), true, hasProv and e + k == iL))
+                [okc, scc, knd] = correctiveFit(w, e, cl)
+                c.phase  := "corrective"
+                c.legs   := cl
+                c.anchor := e
+                c.conf   := okc ? scc * 100 : c.conf
+                c.title  := (okc ? knd : "Correction") + (cl < 3 ? " in progress, wave " + waveTxt(cl + 1, true, sty) : " complete")
+                if rem > 3
+                    int s2  = e + 3
+                    int lg2 = math.min(rem - 3, 5)
+                    [ok2, sc2, dg2] = impulseFit(w, s2, lg2, allowDiag, allowTrunc)
+                    if ok2
+                        for k = 1 to lg2
+                            c.tags.push(Tag.new(s2 + k, waveTxt(k, false, sty), false, hasProv and s2 + k == iL))
+                        int dir2 = legDir(w, s2)
+                        c.phase  := "impulse"
+                        c.legs   := lg2
+                        c.anchor := s2
+                        c.conf   := sc2 * 100
+                        c.diag   := dg2
+                        c.title  := "New impulse " + (dir2 == 1 ? "up" : "down") + ", wave " + waveTxt(math.min(lg2 + 1, 5), false, sty) + " in progress"
+                    else
+                        int lg3 = math.min(rem - 3, 3)
+                        for k = 1 to lg3
+                            c.tags.push(Tag.new(s2 + k, cplxTxt(k), true, hasProv and s2 + k == iL))
+                        c.phase  := "complex"
+                        c.legs   := lg3
+                        c.anchor := s2
+                        c.title  := "Complex correction (W-X-Y)"
+    else
+        // no complete impulse: take the longest partial one ending on the last swing
+        int   lg  = 0
+        float sc0 = 0.0
+        bool  dg0 = false
+        for i = 0 to 2
+            int tryLegs = 4 - i
+            [okB, scB, dgB] = impulseFit(w, iL - tryLegs, tryLegs, allowDiag, allowTrunc)
+            if okB and lg == 0 and scB * 100 >= minFit
+                lg  := tryLegs
+                sc0 := scB
+                dg0 := dgB
+        if lg > 0
+            int s = iL - lg
+            int dirP = legDir(w, s)
+            c.phase  := "impulse"
+            c.legs   := lg
+            c.anchor := s
+            c.conf   := sc0 * 100
+            c.diag   := dg0
+            c.title  := "Impulse " + (dirP == 1 ? "up" : "down") + ", wave " + waveTxt(lg + 1, false, sty) + " in progress"
+            for k = 1 to lg
+                c.tags.push(Tag.new(s + k, waveTxt(k, false, sty), false, hasProv and s + k == iL))
+        else if n >= 3
+            int cl = math.min(n - 1, 3)
+            int s  = iL - cl
+            [okD, scD, kndD] = correctiveFit(w, s, cl)
+            if okD
+                for k = 1 to cl
+                    c.tags.push(Tag.new(s + k, waveTxt(k, true, sty), true, hasProv and s + k == iL))
+                c.phase  := "corrective"
+                c.legs   := cl
+                c.anchor := s
+                c.conf   := scD * 100
+                c.title  := kndD + (cl < 3 ? " in progress, wave " + waveTxt(cl + 1, true, sty) : " complete")
+    c
+
+// Which of the three hard rules the current impulse satisfies.
+ruleReport(array<Pivot> w, Count c) =>
+    string r = "n/a"
+    if c.phase == "impulse" and c.anchor >= 0 and c.anchor + c.legs <= w.size() - 1
+        int   d  = legDir(w, c.anchor)
+        float q0 = d * w.get(c.anchor).price
+        float q1 = d * w.get(c.anchor + 1).price
+        string r1 = "-"
+        string r2 = "-"
+        string r3 = "-"
+        if c.legs >= 2
+            r1 := d * w.get(c.anchor + 2).price > q0 ? "✔" : "✖"
+        if c.legs >= 4
+            r3 := d * w.get(c.anchor + 4).price > q1 ? "✔" : (c.diag ? "diag" : "✖")
+        if c.legs >= 5
+            float l1 = q1 - q0
+            float l3 = d * w.get(c.anchor + 3).price - d * w.get(c.anchor + 2).price
+            float l5 = d * w.get(c.anchor + 5).price - d * w.get(c.anchor + 4).price
+            r2 := (l3 < l1 and l3 < l5) ? "✖" : "✔"
+        r := r1 + "  " + r2 + "  " + r3
+    r
+
+// ─────────────────────────  targets and invalidation  ────────────────────────
+targets(array<Pivot> w, Count c) =>
+    array<float>  lv = array.new<float>()
+    array<string> tx = array.new<string>()
+    float inval = na
+    int   s = c.anchor
+    int   n = w.size()
+    if s >= 0 and c.legs >= 1 and s + c.legs <= n - 1
+        int   d  = legDir(w, s)
+        float p0 = w.get(s).price
+        float p1 = w.get(s + 1).price
+        float l1 = math.abs(p1 - p0)
+        if c.phase == "impulse"
+            if c.legs == 1
+                lv.push(p1 - d * 0.382 * l1)
+                tx.push("W2 0.382")
+                lv.push(p1 - d * 0.500 * l1)
+                tx.push("W2 0.500")
+                lv.push(p1 - d * 0.618 * l1)
+                tx.push("W2 0.618")
+                inval := p0
+            else if c.legs == 2
+                float p2 = w.get(s + 2).price
+                lv.push(p2 + d * 1.618 * l1)
+                tx.push("W3 1.618 x W1")
+                lv.push(p2 + d * 2.618 * l1)
+                tx.push("W3 2.618 x W1")
+                inval := p2
+            else if c.legs == 3
+                float p2 = w.get(s + 2).price
+                float p3 = w.get(s + 3).price
+                float l3 = math.abs(p3 - p2)
+                lv.push(p3 - d * 0.236 * l3)
+                tx.push("W4 0.236")
+                lv.push(p3 - d * 0.382 * l3)
+                tx.push("W4 0.382")
+                lv.push(p3 - d * 0.500 * l3)
+                tx.push("W4 0.500")
+                inval := p1
+            else if c.legs == 4
+                float p2 = w.get(s + 2).price
+                float p3 = w.get(s + 3).price
+                float p4 = w.get(s + 4).price
+                float l3 = math.abs(p3 - p2)
+                lv.push(p4 + d * 0.618 * (l1 + l3))
+                tx.push("W5 0.618 x (W1+W3)")
+                lv.push(p4 + d * 1.000 * l1)
+                tx.push("W5 = W1")
+                lv.push(p4 + d * 1.618 * l1)
+                tx.push("W5 1.618 x W1")
+                inval := p4
+            else
+                float p5  = w.get(s + 5).price
+                float tot = math.abs(p5 - p0)
+                lv.push(p5 - d * 0.382 * tot)
+                tx.push("Retrace 0.382")
+                lv.push(p5 - d * 0.500 * tot)
+                tx.push("Retrace 0.500")
+                lv.push(p5 - d * 0.618 * tot)
+                tx.push("Retrace 0.618")
+                inval := p5
+        else if c.phase == "corrective" or c.phase == "complex"
+            if c.legs == 1
+                lv.push(p1 - d * 0.500 * l1)
+                tx.push("B 0.500 x A")
+                lv.push(p1 - d * 0.618 * l1)
+                tx.push("B 0.618 x A")
+                lv.push(p1 - d * 0.786 * l1)
+                tx.push("B 0.786 x A")
+                inval := p0
+            else if c.legs == 2
+                float p2 = w.get(s + 2).price
+                lv.push(p2 + d * 0.618 * l1)
+                tx.push("C 0.618 x A")
+                lv.push(p2 + d * 1.000 * l1)
+                tx.push("C = A")
+                lv.push(p2 + d * 1.618 * l1)
+                tx.push("C 1.618 x A")
+                inval := p0
+            else
+                float p3  = w.get(s + 3).price
+                float tot = math.abs(p3 - p0)
+                lv.push(p3 - d * 0.618 * tot)
+                tx.push("Resumption 0.618")
+                lv.push(p3 - d * 1.000 * tot)
+                tx.push("Full retrace of A-B-C")
+                inval := p3
+        else if c.phase == "triangle"
+            float pe   = w.get(s + c.legs).price
+            float wide = math.abs(w.get(s + 1).price - w.get(s).price)
+            lv.push(pe - d * 0.618 * wide)
+            tx.push("Thrust 0.618 x widest leg")
+            lv.push(pe - d * 1.000 * wide)
+            tx.push("Thrust = widest leg")
+    [lv, tx, inval]
+
+// ───────────────────────────────  drawing pool  ──────────────────────────────
+var array<line>  lnPool = array.new<line>()
+var array<label> lbPool = array.new<label>()
+var array<box>   bxPool = array.new<box>()
+
+clearPool() =>
+    while lnPool.size() > 0
+        line.delete(lnPool.pop())
+    while lbPool.size() > 0
+        label.delete(lbPool.pop())
+    while bxPool.size() > 0
+        box.delete(bxPool.pop())
+    true
+
+drawZig(array<Pivot> w, color col) =>
+    int n = w.size()
+    if n > 1
+        for i = 1 to n - 1
+            Pivot a = w.get(i - 1)
+            Pivot b = w.get(i)
+            lnPool.push(line.new(a.bar, a.price, b.bar, b.price, color = color.new(col, 45), width = 1, style = line.style_dotted))
+    n
+
+drawCount(array<Pivot> w, Count c, color ci, color cc, string sz, bool legs) =>
+    int m = c.tags.size()
+    if m > 0
+        for i = 0 to m - 1
+            Tag   t  = c.tags.get(i)
+            Pivot pv = w.get(t.pi)
+            Pivot pr = w.get(t.pi - 1)
+            color col = t.corr ? cc : ci
+            if legs
+                lnPool.push(line.new(pr.bar, pr.price, pv.bar, pv.price, color = col, width = 2, style = t.prov ? line.style_dashed : line.style_solid))
+            lbPool.push(label.new(pv.bar, pv.price, t.txt + (t.prov ? "?" : ""), color = color.new(col, t.prov ? 55 : 15), textcolor = color.white, style = pv.dir == 1 ? label.style_label_down : label.style_label_up, size = sz, yloc = yloc.price))
+    m
+
+drawTargets(array<Pivot> w, Count c, int bars, color ct, color cv) =>
+    [lv, tx, inval] = targets(w, c)
+    int k = lv.size()
+    if k > 0
+        float lo = lv.min()
+        float hi = lv.max()
+        bxPool.push(box.new(bar_index, hi, bar_index + bars, lo, border_color = color.new(ct, 70), bgcolor = color.new(ct, 92)))
+        for i = 0 to k - 1
+            float p = lv.get(i)
+            lnPool.push(line.new(bar_index, p, bar_index + bars, p, color = color.new(ct, 20), style = line.style_dotted))
+            lbPool.push(label.new(bar_index + bars, p, tx.get(i) + "  " + str.tostring(p, format.mintick), color = color.new(ct, 100), textcolor = ct, style = label.style_label_left, size = size.small))
+    if not na(inval)
+        lnPool.push(line.new(bar_index - 1, inval, bar_index + bars, inval, color = cv, style = line.style_dashed))
+        lbPool.push(label.new(bar_index + bars, inval, "invalidation  " + str.tostring(inval, format.mintick), color = color.new(cv, 100), textcolor = cv, style = label.style_label_left, size = size.small))
+    k
+
+// ──────────────────────────────────  engine  ─────────────────────────────────
+float atrv    = ta.atr(atrLen)
+float minMove = filtMode == "ATR" ? atrv * atrMult : filtMode == "Percent" ? close * pctMove / 100.0 : 0.0
+int   depthSub = math.max(2, int(math.round(depthIn * subRatio)))
+
+var Zig zMain = Zig.new(array.new<Pivot>())
+var Zig zSub  = Zig.new(array.new<Pivot>())
+zMain.step(depthIn, minMove)
+zSub.step(depthSub, minMove * subRatio)
+
+[wDisp, hpDisp] = buildWork(zMain, useProv and barstate.islast)
+[wSub,  hpSub]  = buildWork(zSub, useProv and barstate.islast)
+array<Pivot> wConf = array.copy(zMain.pv)
+
+var Count cDisp = Count.new(array.new<Tag>(), "No valid count", "none", 0, -1, 0.0, false)
+var Count cConf = Count.new(array.new<Tag>(), "No valid count", "none", 0, -1, 0.0, false)
+var Count cSub  = Count.new(array.new<Tag>(), "No valid count", "none", 0, -1, 0.0, false)
+
+// Recount only when a swing changed (cheap) and on the live bar (for the
+// provisional swing), instead of on every historical bar.
+if zMain.changed or barstate.islast
+    cDisp := analyze(wDisp, diagOk, truncOk, maxLook, minConf, styMain, hpDisp)
+if zMain.changed
+    cConf := analyze(wConf, diagOk, truncOk, maxLook, minConf, styMain, false)
+if showSub and (zSub.changed or barstate.islast)
+    cSub := analyze(wSub, diagOk, truncOk, maxLook, minConf, stySub, hpSub)
+
+// ─────────────────────────────────  render  ──────────────────────────────────
+if barstate.islast
+    clearPool()
+    if showZig
+        drawZig(wDisp, cZig)
+    if showSub
+        drawCount(wSub, cSub, color.new(cImp, 35), color.new(cCor, 35), szOf(szSub), false)
+    drawCount(wDisp, cDisp, cImp, cCor, szOf(szMain), true)
+    if showTgt
+        drawTargets(wDisp, cDisp, projBars, cTgt, cInv)
+
+// ───────────────────────────────  count panel  ───────────────────────────────
+var table tb = table.new(position.top_right, 2, 8, border_width = 1, border_color = color.new(color.gray, 60), frame_width = 1, frame_color = color.new(color.gray, 40))
+
+if barstate.islast and showTbl
+    [lvT, txT, invT] = targets(wDisp, cDisp)
+    bool bull = true
+    if cDisp.anchor >= 0 and cDisp.anchor < wDisp.size()
+        bull := legDir(wDisp, cDisp.anchor) == 1
+    color hdr  = cDisp.phase == "none" ? color.gray : (cDisp.phase == "impulse" ? (bull ? color.new(color.teal, 20) : color.new(color.maroon, 20)) : color.new(cCor, 30))
+    string nxt = cDisp.phase == "none" ? "-" : cDisp.legs >= 5 ? "structure complete" : (cDisp.phase == "impulse" ? waveTxt(cDisp.legs + 1, false, styMain) : waveTxt(math.min(cDisp.legs + 1, 5), true, styMain))
+    string tgtS = "-"
+    if lvT.size() > 0
+        tgtS := str.tostring(lvT.min(), format.mintick) + "  ...  " + str.tostring(lvT.max(), format.mintick) + "   (" + str.tostring(txT.size()) + " levels)"
+    table.cell(tb, 0, 0, "Elliott Wave Auto-Counter", text_color = color.white, bgcolor = hdr, text_size = size.small)
+    table.cell(tb, 1, 0, str.tostring(math.round(cDisp.conf)) + "% fib fit", text_color = color.white, bgcolor = hdr, text_size = size.small)
+    table.cell(tb, 0, 1, "Count", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 1, cDisp.title, text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 2, "Wave in progress", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 2, nxt, text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 3, "Rules R1 R2 R3", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 3, ruleReport(wDisp, cDisp), text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 4, "Target zone", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 4, tgtS, text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 5, "Invalidation", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 5, na(invT) ? "-" : str.tostring(invT, format.mintick), text_color = cInv, text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 6, "Lower degree", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 6, showSub ? cSub.title : "off", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 7, "Swings held", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 7, str.tostring(wDisp.size()) + "  (depth " + str.tostring(depthIn) + ")", text_size = size.small, text_halign = text.align_left)
+
+// ─────────────────────────────────  alerts  ──────────────────────────────────
+// Alerts run off the confirmed count only, so they never fire on a provisional
+// swing that can still disappear.
+var string prevSig = na
+int cDir = 0
+if cConf.anchor >= 0 and cConf.anchor < wConf.size()
+    cDir := legDir(wConf, cConf.anchor)
+string sig = cConf.phase + "|" + str.tostring(cConf.legs) + "|" + str.tostring(cDir)
+bool changed = not na(prevSig) and sig != prevSig
+if barstate.isconfirmed
+    prevSig := sig
+
+bool w3Start  = changed and cConf.phase == "impulse" and cConf.legs == 2
+bool w5Start  = changed and cConf.phase == "impulse" and cConf.legs == 4
+bool impDone  = changed and cConf.phase == "impulse" and cConf.legs == 5
+bool corrDone = changed and cConf.phase == "corrective" and cConf.legs == 3
+
+if alertsOn and changed and barstate.isconfirmed
+    alert("Elliott count updated: " + cConf.title + " (" + str.tostring(math.round(cConf.conf)) + "% fib fit)", alert.freq_once_per_bar)
+
+alertcondition(changed, "Wave count changed", "Elliott Wave count changed on {{ticker}} {{interval}}")
+alertcondition(w3Start, "Wave 3 may be starting", "Wave 2 complete, wave 3 expected on {{ticker}} {{interval}}")
+alertcondition(w5Start, "Wave 5 may be starting", "Wave 4 complete, wave 5 expected on {{ticker}} {{interval}}")
+alertcondition(impDone, "Impulse complete", "Five wave impulse complete, correction expected on {{ticker}} {{interval}}")
+alertcondition(corrDone, "Correction complete", "A-B-C correction complete, trend may resume on {{ticker}} {{interval}}")
+
+plot(na, "placeholder", display = display.none)
