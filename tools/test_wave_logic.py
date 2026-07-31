@@ -13,6 +13,8 @@ from wave_logic_reference import (
     Zig,
     analyze,
     impulse_fit,
+    impulse_velocity,
+    leg_velocity,
     leg_dir,
     run_zigzag,
     targets,
@@ -27,7 +29,7 @@ DEPTH = 5
 BARS = 12
 
 
-def make_series(points: list[float], bars: int = BARS, noise: float = 0.0):
+def make_series(points: list[float], bars=BARS, noise: float = 0.0):
     """Piecewise linear path through `points`, one bar per step.
 
     Returns (highs, lows) plus the bar index of every turning point so tests can
@@ -36,12 +38,13 @@ def make_series(points: list[float], bars: int = BARS, noise: float = 0.0):
     highs: list[float] = []
     lows: list[float] = []
     turns: list[int] = []
+    spans = [bars] * (len(points) - 1) if isinstance(bars, int) else list(bars)
     for i in range(len(points) - 1):
         a, b = points[i], points[i + 1]
         turns.append(len(highs))
-        for j in range(bars):
-            v = a + (b - a) * j / bars
-            if noise and j not in (0, bars - 1):
+        for j in range(spans[i]):
+            v = a + (b - a) * j / spans[i]
+            if noise and j not in (0, spans[i] - 1):
                 v += noise * math.sin(j * 2.3 + i)
             highs.append(v + EPS)
             lows.append(v - EPS)
@@ -51,8 +54,8 @@ def make_series(points: list[float], bars: int = BARS, noise: float = 0.0):
     return highs, lows, turns
 
 
-def pivots_of(points, min_move=0.0, noise=0.0, with_prov=False):
-    highs, lows, _ = make_series(points, noise=noise)
+def pivots_of(points, min_move=0.0, noise=0.0, with_prov=False, bars=BARS):
+    highs, lows, _ = make_series(points, bars=bars, noise=noise)
     return run_zigzag(highs, lows, DEPTH, min_move, with_prov)
 
 
@@ -245,6 +248,34 @@ def _():
 def _():
     # retraces most of the impulse yet holds above its origin at 100
     w, _ = pivots_of([115, 100, 120, 110, 150, 135, 165, 110, 140, 105, 112])
+    c = analyze(w, True, True, 25, 0)
+    assert labels(c) == ["1", "2", "3", "4", "5", "A", "B", "C"], labels(c)
+    assert c.phase == "corrective", c.phase
+
+
+@case("a move faster than the impulse is read as a new impulse")
+def _():
+    # a slow five wave rally, then a decline covering ground three times faster
+    pts = [115, 100, 130, 120, 160, 150, 175, 140, 160, 130, 136]
+    spans = [18, 18, 18, 18, 18, 18, 6, 6, 6, 6]
+    w, _ = pivots_of(pts, bars=spans)
+    iv = impulse_velocity(w, 0)
+    cv = leg_velocity(w, 6)
+    assert cv / iv > 2.0, (cv, iv, cv / iv)
+    c = analyze(w, True, True, 25, 0)
+    assert labels(c) == ["1", "2", "3", "4", "5", "1", "2", "3"], labels(c)
+    assert "New impulse down" in c.title, c.title
+
+
+@case("a correction slower than the impulse stays a correction")
+def _():
+    # same swing prices, but the decline takes longer than the rally did
+    pts = [115, 100, 130, 120, 160, 150, 175, 140, 160, 130, 136]
+    spans = [10, 10, 10, 10, 10, 10, 24, 24, 24, 24]
+    w, _ = pivots_of(pts, bars=spans)
+    iv = impulse_velocity(w, 0)
+    cv = leg_velocity(w, 6)
+    assert cv / iv < 0.8, (cv, iv, cv / iv)
     c = analyze(w, True, True, 25, 0)
     assert labels(c) == ["1", "2", "3", "4", "5", "A", "B", "C"], labels(c)
     assert c.phase == "corrective", c.phase

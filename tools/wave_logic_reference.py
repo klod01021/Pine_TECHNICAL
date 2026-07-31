@@ -266,6 +266,19 @@ def triangle_fit(w, s, legs, limit_price=None):
     return ok
 
 
+def leg_velocity(w, i) -> float:
+    """Price covered per bar by the leg ending at pivot i."""
+    db = w[i].bar - w[i - 1].bar
+    return abs(w[i].price - w[i - 1].price) / db if db > 0 else 0.0
+
+
+def impulse_velocity(w, s) -> float:
+    """Mean velocity of the directional waves 1, 3 and 5 of an impulse."""
+    vs = [leg_velocity(w, s + k) for k in (1, 3, 5) if s + k < len(w)]
+    vs = [v for v in vs if v > 0]
+    return sum(vs) / len(vs) if vs else 0.0
+
+
 def leg_character(sub, bar_a, bar_b, allow_diag=True, allow_trunc=True) -> int:
     """Is the leg between two bars built like an impulse or like a correction?
 
@@ -341,7 +354,18 @@ def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", 
                 # lower degree breaks the tie: if that first leg subdivides
                 # into five it is impulsive, so lean towards the impulse.
                 char = leg_character(sub, w[e].bar, w[e + 1].bar, allow_diag, allow_trunc)
-                bias = -0.10 if char > 0 else 0.05
+                # Second read on the same question: a correction is the market
+                # resting, so it should not cover ground faster than the
+                # impulse it is undoing. A first leg travelling further per bar
+                # than the impulse averaged is behaving like a trend, not a
+                # pause. Subdivision is the stronger evidence, so it is
+                # weighted double; velocity decides when subdivision is silent.
+                iv = impulse_velocity(w, best)
+                ratio = (leg_velocity(w, e + 1) / iv) if iv > 0 else 1.0
+                mom = 1 if ratio > 1.2 else (-1 if ratio < 0.8 else 0)
+                bias = 0.05 - 0.075 * (2 * char + mom)
+                if ratio > 2.0:
+                    bias -= 0.25
                 # t == 0 is the reversal case: no correction at all, the move
                 # off the top is impulsive in its own right. It is tried last
                 # so an equally long correction reading always wins the tie.
