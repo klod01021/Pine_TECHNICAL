@@ -459,6 +459,46 @@ def targets(w, c) -> tuple[list[float], list[str], float | None]:
     return lv, tx, inval
 
 
+def time_targets(w, c) -> tuple[list[int], int | None]:
+    """Bar indices where the wave in progress is projected to end.
+
+    Waves relate in time by the same ratios they relate in price, so each
+    projection is a Fibonacci multiple of the duration of the wave it is
+    usually measured against. Returns the projections and the bar the wave in
+    progress started from.
+    """
+    s, n = c.anchor, len(w)
+    if s < 0 or c.legs < 1 or s + c.legs > n - 1:
+        return [], None
+    start = w[s + c.legs].bar
+
+    def dur(i: int) -> int:
+        return w[s + i].bar - w[s + i - 1].bar
+
+    ref, ratios = 0, ()
+    if c.phase == "impulse":
+        if c.legs == 1:
+            ref, ratios = dur(1), (0.382, 0.618, 1.0)          # wave 2
+        elif c.legs == 2:
+            ref, ratios = dur(1), (1.0, 1.618, 2.618)          # wave 3
+        elif c.legs == 3:
+            ref, ratios = dur(3), (0.382, 0.618, 1.0)          # wave 4
+        elif c.legs == 4:
+            ref, ratios = dur(1), (0.618, 1.0, 1.618)          # wave 5
+        else:
+            ref, ratios = w[s + 5].bar - w[s].bar, (0.382, 0.618, 1.0)   # the correction
+    elif c.phase == "corrective":
+        if c.legs == 1:
+            ref, ratios = dur(1), (0.5, 0.618, 1.0)            # wave B
+        elif c.legs == 2:
+            ref, ratios = dur(1), (0.618, 1.0, 1.618)          # wave C
+        else:
+            ref, ratios = w[s + 3].bar - w[s].bar, (0.382, 0.618, 1.0)   # the next impulse
+    if ref <= 0 or not ratios:
+        return [], start
+    return [start + int(round(r * ref)) for r in ratios], start
+
+
 def run_zigzag(highs, lows, depth, min_move, with_prov=False):
     """Feed a whole series through the engine, exactly as Pine does bar by bar."""
     z = Zig()

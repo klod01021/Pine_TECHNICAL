@@ -53,6 +53,28 @@ Source: [`indicators/elliott_wave_auto_counter_v1.pine`](../indicators/elliott_w
 
 Notation can be set per degree: `1 2 3 4 5 / A B C`, `(1) (2) (3) / (a) (b) (c)`, roman upper or lower, or circled numerals, which lets you approximate standard degree conventions. Colours, label sizes, the swing skeleton, the panel, the projection length and the alert behaviour are all switchable.
 
+## Predicting the next wave
+
+Once a count is on the chart the script projects where the wave in progress should finish, in price and in time.
+
+**Price** comes from the Fibonacci relationships between waves: wave 3 measured from wave 1, wave 4 from wave 3, wave 5 from wave 1 and from wave 1 plus wave 3, and a retracement of the whole impulse once five waves are complete.
+
+**Time** comes from the same ratios applied to duration, because waves relate in time much as they do in price:
+
+| Wave in progress | Projected duration |
+| --- | --- |
+| Wave 2 | 0.382, 0.618, 1.0 x wave 1 |
+| Wave 3 | 1.0, 1.618, 2.618 x wave 1 |
+| Wave 4 | 0.382, 0.618, 1.0 x wave 3 |
+| Wave 5 | 0.618, 1.0, 1.618 x wave 1 |
+| The correction | 0.382, 0.618, 1.0 x the whole impulse |
+| Wave B | 0.5, 0.618, 1.0 x wave A |
+| Wave C | 0.618, 1.0, 1.618 x wave A |
+
+The shaded box is the result: its height is the price target range and its width is the time range, so it marks where the wave should end and roughly when. The dashed vertical line inside it is the middle estimate, labelled with how many bars away it is. The panel repeats this as `in ~N bars`, with the early and late estimates in brackets.
+
+When a wave runs longer than its projection the label reads `due now` and the panel says how many bars it is over. That is information, not a signal: waves overrun, and an overdue wave 3 is often an extending one. Time projections are the softest thing here, well below the hard rules and a step below the price targets, so treat the box as a region of interest rather than a deadline. Estimates are given in bars rather than dates because sessions, weekends and holidays make a bar count the only honest unit.
+
 ## The panel
 
 | Row | Meaning |
@@ -63,6 +85,7 @@ Notation can be set per degree: `1 2 3 4 5 / A B C`, `(1) (2) (3) / (a) (b) (c)`
 | Rules R1 R2 R3 | Per-rule pass, fail, `diag` when wave 4 overlap is being allowed as a diagonal, or `-` when the wave needed for the test does not exist yet. |
 | Target zone | Span of the projected Fibonacci levels. |
 | Invalidation | Price that breaks the current count. |
+| Expected end | Middle time estimate for the wave in progress, with the early and late estimates in brackets, or how far past due it is. |
 | Lower degree | The sub-degree count. |
 | Swings held | Pivots in the skeleton and the depth in use. |
 

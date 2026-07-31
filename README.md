@@ -40,7 +40,8 @@ If you see too many small waves, raise the depth or raise the **Minimum swing = 
 - **Numbers 1-5 in the impulse colour** are a five wave move that passes all three hard Elliott rules.
 - **Letters A-B-C in the corrective colour** are the correction that followed it, and A-B-C-D-E when the shape is a contracting triangle. Only the part of the correction that actually validates gets a letter: if the structure stops making sense after A, you see `A` and nothing more, and the panel says the rest is unresolved. Empty space is the honest answer there.
 - **A label ending in `?` on a dashed leg** sits on the swing that has not confirmed yet. It is the script's best guess about the wave in progress and it will move.
-- **Dotted lines to the right** are the Fibonacci targets for the wave that is currently unfolding, with the shaded box marking the whole target zone.
+- **Dotted lines to the right** are the Fibonacci price targets for the wave currently unfolding.
+- **The shaded box** is the landing zone: its height is the price target range and its width is the Fibonacci *time* projection, so it says where the wave should end and roughly when. The dashed vertical line is the middle estimate, labelled with how many bars away it is; when a wave outruns its projection it reads `due now` instead.
 - **The dashed red line** is the invalidation: the price that would break the count being shown, which is where a stop belongs if you are trading the count.
 - **The panel** in the top right names the structure, the wave in progress, the Fibonacci fit, and which of the three rules pass.
 

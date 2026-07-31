@@ -9,7 +9,15 @@ from __future__ import annotations
 import math
 import sys
 
-from wave_logic_reference import Zig, analyze, impulse_fit, leg_dir, run_zigzag, targets
+from wave_logic_reference import (
+    Zig,
+    analyze,
+    impulse_fit,
+    leg_dir,
+    run_zigzag,
+    targets,
+    time_targets,
+)
 
 EPS = 0.05
 DEPTH = 5
@@ -393,6 +401,54 @@ def _():
             assert all(math.isfinite(v) for v in lv), lv
             checked += 1
     assert checked == 600
+
+
+@case("wave 5 is projected to end a Fibonacci multiple of wave 1 in time")
+def _():
+    w, _ = pivots_of([115, 100, 120, 110, 150, 135, 140])
+    c = analyze(w, True, True, 25, 0)
+    assert c.phase == "impulse" and c.legs == 4, (c.phase, c.legs)
+    bars, start = time_targets(w, c)
+    d1 = w[1].bar - w[0].bar
+    assert start == w[4].bar
+    assert bars == [start + round(0.618 * d1), start + d1, start + round(1.618 * d1)], bars
+    assert bars == sorted(bars) and bars[0] > start
+
+
+@case("wave 3 is projected long, wave 4 short")
+def _():
+    w3, _ = pivots_of([115, 100, 120, 110, 130])
+    c3 = analyze(w3, True, True, 25, 0)
+    assert c3.legs == 2, c3.legs
+    bars3, start3 = time_targets(w3, c3)
+    d1 = w3[1].bar - w3[0].bar
+    assert bars3[0] - start3 >= d1, (bars3, start3, d1)      # wave 3 runs at least as long as wave 1
+
+    w4, _ = pivots_of([115, 100, 120, 110, 150, 145])
+    c4 = analyze(w4, True, True, 25, 0)
+    assert c4.legs == 3, c4.legs
+    bars4, start4 = time_targets(w4, c4)
+    d3 = w4[3].bar - w4[2].bar
+    assert bars4[-1] - start4 <= d3, (bars4, start4, d3)     # wave 4 no longer than wave 3
+
+
+@case("a completed impulse projects the duration of the correction")
+def _():
+    w, _ = pivots_of([115, 100, 120, 110, 150, 135, 165, 160])
+    c = analyze(w, True, True, 25, 0)
+    assert c.legs == 5 and c.phase == "impulse"
+    bars, start = time_targets(w, c)
+    total = w[5].bar - w[0].bar
+    assert start == w[5].bar
+    assert bars == [start + round(0.382 * total), start + round(0.618 * total), start + total], bars
+
+
+@case("time projection is absent when there is no count")
+def _():
+    w, _ = pivots_of([100, 101, 100, 101, 100])
+    c = analyze(w, True, True, 25, 0)
+    bars, start = time_targets(w, c)
+    assert bars == [] or all(b > (start or 0) for b in bars), (bars, start)
 
 
 def main() -> int:

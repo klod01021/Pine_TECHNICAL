@@ -53,7 +53,8 @@ color  cZig     = input.color(#78909c, "Swing skeleton colour", group = G_DSP)
 bool   showTbl  = input.bool(true, "Show the count panel", group = G_DSP)
 
 bool   showTgt  = input.bool(true, "Project the next wave", group = G_TGT)
-int    projBars = input.int(30, "Projection length (bars)", minval = 5, maxval = 300, group = G_TGT)
+bool   showTime = input.bool(true, "Project when the wave should end (Fibonacci time)", group = G_TGT, tooltip = "Waves relate to each other in time by the same ratios they relate in price. The target box is then bounded horizontally by those time projections, so it marks where the wave should end and roughly when, and the dashed vertical line is the middle estimate.")
+int    projBars = input.int(30, "Projection length (bars)", minval = 5, maxval = 300, group = G_TGT, tooltip = "How far the projection reaches when the time estimate is switched off or unavailable.")
 color  cTgt     = input.color(#00897b, "Target colour", group = G_TGT)
 color  cInv     = input.color(#d50000, "Invalidation colour", group = G_TGT)
 bool   alertsOn = input.bool(true, "Fire alert() on every count change", group = G_TGT)
@@ -634,6 +635,70 @@ targets(array<Pivot> w, Count c) =>
             tx.push("Thrust = widest leg")
     [lv, tx, inval]
 
+// Bar indices where the wave in progress is projected to end. Waves relate in
+// time by the same ratios they relate in price, so each projection is a
+// Fibonacci multiple of the duration of the wave it is measured against.
+timeTargets(array<Pivot> w, Count c) =>
+    int b1 = na
+    int b2 = na
+    int b3 = na
+    int st = na
+    int s  = c.anchor
+    int n  = w.size()
+    if s >= 0 and c.legs >= 1 and s + c.legs <= n - 1
+        st := w.get(s + c.legs).bar
+        float ref = 0.0
+        float r1  = 0.0
+        float r2  = 0.0
+        float r3  = 0.0
+        if c.phase == "impulse"
+            if c.legs == 1                                      // wave 2
+                ref := w.get(s + 1).bar - w.get(s).bar
+                r1  := 0.382
+                r2  := 0.618
+                r3  := 1.0
+            else if c.legs == 2                                 // wave 3
+                ref := w.get(s + 1).bar - w.get(s).bar
+                r1  := 1.0
+                r2  := 1.618
+                r3  := 2.618
+            else if c.legs == 3                                 // wave 4
+                ref := w.get(s + 3).bar - w.get(s + 2).bar
+                r1  := 0.382
+                r2  := 0.618
+                r3  := 1.0
+            else if c.legs == 4                                 // wave 5
+                ref := w.get(s + 1).bar - w.get(s).bar
+                r1  := 0.618
+                r2  := 1.0
+                r3  := 1.618
+            else                                                // the correction
+                ref := w.get(s + 5).bar - w.get(s).bar
+                r1  := 0.382
+                r2  := 0.618
+                r3  := 1.0
+        else if c.phase == "corrective"
+            if c.legs == 1                                      // wave B
+                ref := w.get(s + 1).bar - w.get(s).bar
+                r1  := 0.5
+                r2  := 0.618
+                r3  := 1.0
+            else if c.legs == 2                                 // wave C
+                ref := w.get(s + 1).bar - w.get(s).bar
+                r1  := 0.618
+                r2  := 1.0
+                r3  := 1.618
+            else                                                // the next impulse
+                ref := w.get(s + 3).bar - w.get(s).bar
+                r1  := 0.382
+                r2  := 0.618
+                r3  := 1.0
+        if ref > 0
+            b1 := st + int(math.round(r1 * ref))
+            b2 := st + int(math.round(r2 * ref))
+            b3 := st + int(math.round(r3 * ref))
+    [b1, b2, b3, st]
+
 // ───────────────────────────────  drawing pool  ──────────────────────────────
 var array<line>  lnPool = array.new<line>()
 var array<label> lbPool = array.new<label>()
@@ -670,20 +735,34 @@ drawCount(array<Pivot> w, Count c, color ci, color cc, string sz, bool legs) =>
             lbPool.push(label.new(pv.bar, pv.price, t.txt + (t.prov ? "?" : ""), color = color.new(col, t.prov ? 55 : 15), textcolor = color.white, style = pv.dir == 1 ? label.style_label_down : label.style_label_up, size = sz, yloc = yloc.price))
     m
 
-drawTargets(array<Pivot> w, Count c, int bars, color ct, color cv) =>
+drawTargets(array<Pivot> w, Count c, int bars, color ct, color cv, bool useTime) =>
     [lv, tx, inval] = targets(w, c)
+    [t1, t2, t3, st] = timeTargets(w, c)
+    // drawings may not sit more than 500 bars in the future
+    int  maxX  = bar_index + 480
+    bool haveT = useTime and not na(t3)
+    int  xBeg  = bar_index
+    int  xEnd  = math.min(bar_index + bars, maxX)
+    if haveT
+        xBeg := math.min(math.max(t1, bar_index), maxX - 1)
+        xEnd := math.min(math.max(t3, xBeg + 1), maxX)
     int k = lv.size()
     if k > 0
         float lo = lv.min()
         float hi = lv.max()
-        bxPool.push(box.new(bar_index, hi, bar_index + bars, lo, border_color = color.new(ct, 70), bgcolor = color.new(ct, 92)))
+        // the landing zone: where the wave should end, in price and in time
+        bxPool.push(box.new(xBeg, hi, xEnd, lo, border_color = color.new(ct, 70), bgcolor = color.new(ct, 92)))
         for i = 0 to k - 1
             float p = lv.get(i)
-            lnPool.push(line.new(bar_index, p, bar_index + bars, p, color = color.new(ct, 20), style = line.style_dotted))
-            lbPool.push(label.new(bar_index + bars, p, tx.get(i) + "  " + str.tostring(p, format.mintick), color = color.new(ct, 100), textcolor = ct, style = label.style_label_left, size = size.small))
+            lnPool.push(line.new(bar_index, p, xEnd, p, color = color.new(ct, 20), style = line.style_dotted))
+            lbPool.push(label.new(xEnd, p, tx.get(i) + "  " + str.tostring(p, format.mintick), color = color.new(ct, 100), textcolor = ct, style = label.style_label_left, size = size.small))
+        if haveT and not na(t2)
+            int xMid = math.min(math.max(t2, bar_index), maxX)
+            lnPool.push(line.new(xMid, lo, xMid, hi, color = color.new(ct, 10), style = line.style_dashed))
+            lbPool.push(label.new(xMid, hi, t2 > bar_index ? "due in ~" + str.tostring(t2 - bar_index) + " bars" : "due now", color = color.new(ct, 100), textcolor = ct, style = label.style_label_down, size = size.small))
     if not na(inval)
-        lnPool.push(line.new(bar_index - 1, inval, bar_index + bars, inval, color = cv, style = line.style_dashed))
-        lbPool.push(label.new(bar_index + bars, inval, "invalidation  " + str.tostring(inval, format.mintick), color = color.new(cv, 100), textcolor = cv, style = label.style_label_left, size = size.small))
+        lnPool.push(line.new(bar_index - 1, inval, xEnd, inval, color = cv, style = line.style_dashed))
+        lbPool.push(label.new(xEnd, inval, "invalidation  " + str.tostring(inval, format.mintick), color = color.new(cv, 100), textcolor = cv, style = label.style_label_left, size = size.small))
     k
 
 // ──────────────────────────────────  engine  ─────────────────────────────────
@@ -722,10 +801,10 @@ if barstate.islast
         drawCount(wSub, cSub, color.new(cImp, 35), color.new(cCor, 35), szOf(szSub), false)
     drawCount(wDisp, cDisp, cImp, cCor, szOf(szMain), true)
     if showTgt
-        drawTargets(wDisp, cDisp, projBars, cTgt, cInv)
+        drawTargets(wDisp, cDisp, projBars, cTgt, cInv, showTime)
 
 // ───────────────────────────────  count panel  ───────────────────────────────
-var table tb = table.new(position.top_right, 2, 8, border_width = 1, border_color = color.new(color.gray, 60), frame_width = 1, frame_color = color.new(color.gray, 40))
+var table tb = table.new(position.top_right, 2, 9, border_width = 1, border_color = color.new(color.gray, 60), frame_width = 1, frame_color = color.new(color.gray, 40))
 
 if barstate.islast and showTbl
     [lvT, txT, invT] = targets(wDisp, cDisp)
@@ -749,10 +828,16 @@ if barstate.islast and showTbl
     table.cell(tb, 1, 4, tgtS, text_size = size.small, text_halign = text.align_left)
     table.cell(tb, 0, 5, "Invalidation", text_size = size.small, text_halign = text.align_left)
     table.cell(tb, 1, 5, na(invT) ? "-" : str.tostring(invT, format.mintick), text_color = cInv, text_size = size.small, text_halign = text.align_left)
-    table.cell(tb, 0, 6, "Lower degree", text_size = size.small, text_halign = text.align_left)
-    table.cell(tb, 1, 6, showSub ? cSub.title : "off", text_size = size.small, text_halign = text.align_left)
-    table.cell(tb, 0, 7, "Swings held", text_size = size.small, text_halign = text.align_left)
-    table.cell(tb, 1, 7, str.tostring(wDisp.size()) + "  (depth " + str.tostring(depthIn) + ")", text_size = size.small, text_halign = text.align_left)
+    [tp1, tp2, tp3, tps] = timeTargets(wDisp, cDisp)
+    string dueS = "-"
+    if not na(tp2)
+        dueS := tp2 > bar_index ? "in ~" + str.tostring(tp2 - bar_index) + " bars (" + str.tostring(math.max(tp1 - bar_index, 0)) + "-" + str.tostring(math.max(tp3 - bar_index, 0)) + ")" : "due now, " + str.tostring(bar_index - tp2) + " bars over"
+    table.cell(tb, 0, 6, "Expected end", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 6, dueS, text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 7, "Lower degree", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 7, showSub ? cSub.title : "off", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 8, "Swings held", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 8, str.tostring(wDisp.size()) + "  (depth " + str.tostring(depthIn) + ")", text_size = size.small, text_halign = text.align_left)
 
 // ─────────────────────────────────  alerts  ──────────────────────────────────
 // Alerts run off the confirmed count only, so they never fire on a provisional
