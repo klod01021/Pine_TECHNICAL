@@ -4,7 +4,7 @@ TradingView Pine Script indicators.
 
 | Indicator | File | What it does |
 | --- | --- | --- |
-| Elliott Wave Auto-Counter | [`indicators/elliott_wave_auto_counter.pine`](indicators/elliott_wave_auto_counter.pine) | Detects swings, labels rule-validated Elliott impulses and corrections, projects Fibonacci targets and draws the invalidation level. |
+| Elliott Wave Auto-Counter v1 | [`indicators/elliott_wave_auto_counter_v1.pine`](indicators/elliott_wave_auto_counter_v1.pine) | Detects swings, labels rule-validated Elliott impulses and corrections, projects Fibonacci targets and draws the invalidation level. |
 
 ---
 
@@ -13,9 +13,9 @@ TradingView Pine Script indicators.
 1. Open any chart on [tradingview.com](https://www.tradingview.com) and click **Pine Editor** in the panel at the bottom of the screen.
 2. Click **Open → New indicator** so you get a blank script (this leaves your other scripts untouched).
 3. Select everything in the editor (`Ctrl/Cmd + A`) and paste the full contents of
-   [`indicators/elliott_wave_auto_counter.pine`](indicators/elliott_wave_auto_counter.pine) over it.
+   [`indicators/elliott_wave_auto_counter_v1.pine`](indicators/elliott_wave_auto_counter_v1.pine) over it.
    Use the **Raw** view on GitHub and copy from there so nothing is reformatted.
-4. Click **Save** (`Ctrl/Cmd + S`), give it a name such as `Elliott Wave Auto-Counter`, then click **Add to chart**.
+4. Click **Save** (`Ctrl/Cmd + S`), give it a name such as `Elliott Wave Auto-Counter v1`, then click **Add to chart**.
 5. Open the indicator's **Settings → Inputs** and set **Pivot depth** for your timeframe (see the table below). That single input controls almost everything.
 
 The script compiles to a standard indicator, so it works on the free plan and on every symbol and timeframe. To reuse it later, it will be waiting under the **Indicators → My scripts** menu.
@@ -44,7 +44,7 @@ If you see too many small waves, raise the depth or raise the **Minimum swing = 
 - **The dashed red line** is the invalidation: the price that would break the count being shown, which is where a stop belongs if you are trading the count.
 - **The panel** in the top right names the structure, the wave in progress, the Fibonacci fit, and which of the three rules pass.
 
-Full input-by-input reference: [`docs/elliott_wave_auto_counter.md`](docs/elliott_wave_auto_counter.md).
+Full input-by-input reference: [`docs/elliott_wave_auto_counter_v1.md`](docs/elliott_wave_auto_counter_v1.md).
 
 ---
 
@@ -54,7 +54,7 @@ The script ships five alert conditions plus a dynamic one:
 
 - *Wave count changed*, *Wave 3 may be starting*, *Wave 5 may be starting*, *Impulse complete*, *Correction complete*.
 
-Right click the chart → **Add alert** → set **Condition** to `EW Auto-Counter` and pick the one you want. To receive the count itself in the alert text, choose the condition **Any alert() function call** instead; the message then names the structure and its confidence.
+Right click the chart → **Add alert** → set **Condition** to `EW Auto-Counter v1` and pick the one you want. To receive the count itself in the alert text, choose the condition **Any alert() function call** instead; the message then names the structure and its confidence.
 
 Alerts are driven by the confirmed count only, never by the provisional `?` swing, so they do not fire and then vanish.
 

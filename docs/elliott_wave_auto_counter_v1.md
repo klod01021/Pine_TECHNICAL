@@ -1,6 +1,6 @@
-# Elliott Wave Auto-Counter - reference
+# Elliott Wave Auto-Counter v1 - reference
 
-Source: [`indicators/elliott_wave_auto_counter.pine`](../indicators/elliott_wave_auto_counter.pine) (Pine Script v6, overlay indicator).
+Source: [`indicators/elliott_wave_auto_counter_v1.pine`](../indicators/elliott_wave_auto_counter_v1.pine) (Pine Script v6, overlay indicator).
 
 ## How the count is produced
 

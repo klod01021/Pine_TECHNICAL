@@ -19,7 +19,7 @@
 //  output as a structured, rule checked hypothesis - not as a prediction.
 // ═════════════════════════════════════════════════════════════════════════════
 
-indicator("Elliott Wave Auto-Counter", "EW Auto-Counter", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 100, max_bars_back = 500)
+indicator("Elliott Wave Auto-Counter v1", "EW Auto-Counter v1", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 100, max_bars_back = 500)
 
 // ─────────────────────────────────  inputs  ──────────────────────────────────
 const string G_DET = "Swing detection"
