@@ -266,8 +266,32 @@ def triangle_fit(w, s, legs, limit_price=None):
     return ok
 
 
+def leg_character(sub, bar_a, bar_b, allow_diag=True, allow_trunc=True) -> int:
+    """Is the leg between two bars built like an impulse or like a correction?
+
+    The oldest discriminator in Elliott: an impulsive leg subdivides into five
+    waves at the next degree down, a corrective one into three. Returns +1 for
+    impulsive, -1 for corrective and 0 when the lower degree cannot tell.
+    """
+    if not sub:
+        return 0
+    idx = [i for i, p in enumerate(sub) if bar_a <= p.bar <= bar_b]
+    if len(idx) < 4:
+        return 0
+    first, legs = idx[0], idx[-1] - idx[0]
+    if legs >= 5:
+        ok, _, _ = impulse_fit(sub, first, 5, allow_diag, allow_trunc)
+        if ok:
+            return 1
+    if legs == 3:
+        ok, _, _ = corrective_fit(sub, first, 3)
+        if ok:
+            return -1
+    return 0
+
+
 # ── the count ────────────────────────────────────────────────────────────────
-def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", has_prov=False, allow_expanded=False) -> Count:
+def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", has_prov=False, allow_expanded=False, sub=None) -> Count:
     c = Count(tags=[])
     n = len(w)
     i_last = n - 1
@@ -310,8 +334,14 @@ def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", 
                 # correction, since three legs is the normal shape.
                 cl, sc_c, knd = 0, 0.0, "Correction"
                 lg, sc_i, dg_i = 0, 0.0, False
-                explained = -1
+                explained, best_qual = -1, -1.0
                 origin = w[best].price
+                # Down-up-down after a top reads either as A-B-C or as waves
+                # 1-2-3 of a new decline, and the two often score the same. The
+                # lower degree breaks the tie: if that first leg subdivides
+                # into five it is impulsive, so lean towards the impulse.
+                char = leg_character(sub, w[e].bar, w[e + 1].bar, allow_diag, allow_trunc)
+                bias = -0.10 if char > 0 else 0.05
                 # t == 0 is the reversal case: no correction at all, the move
                 # off the top is impulsive in its own right. It is tried last
                 # so an equally long correction reading always wins the tie.
@@ -331,8 +361,9 @@ def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", 
                     # the correction before it is a complete three
                     if lg_t == 1 and t < 3:
                         lg_t = 0
-                    if t + lg_t > explained:
-                        explained = t + lg_t
+                    qual = (t * sc_t + lg_t * sci_t) / max(1, t + lg_t)
+                    if t + lg_t > explained or (t + lg_t == explained and qual > best_qual + bias):
+                        explained, best_qual = t + lg_t, qual
                         cl, sc_c, knd = t, sc_t, knd_t
                         lg, sc_i, dg_i = lg_t, sci_t, dgi_t
                 for k in range(1, cl + 1):

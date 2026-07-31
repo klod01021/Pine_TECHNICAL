@@ -360,13 +360,41 @@ triangleFit(array<Pivot> w, int s, int legs, float limit) =>
                 ok := false
     ok
 
+// Is the leg between two bars built like an impulse or like a correction?
+// The oldest discriminator in Elliott: an impulsive leg subdivides into five
+// waves at the next degree down, a corrective one into three. Returns +1 for
+// impulsive, -1 for corrective and 0 when the lower degree cannot tell.
+legCharacter(array<Pivot> sub, int barA, int barB, bool allowDiag, bool allowTrunc) =>
+    int res   = 0
+    int n     = sub.size()
+    int first = -1
+    int last  = -1
+    if n > 0
+        for i = 0 to n - 1
+            int b = sub.get(i).bar
+            if b >= barA and b <= barB
+                if first < 0
+                    first := i
+                last := i
+    if first >= 0 and last - first >= 3
+        int legs = last - first
+        if legs >= 5
+            [okS, scS, dgS] = impulseFit(sub, first, 5, allowDiag, allowTrunc)
+            if okS
+                res := 1
+        if res == 0 and legs == 3
+            [okX, scX, kndX] = correctiveFit(sub, first, 3, false, na)
+            if okX
+                res := -1
+    res
+
 // ────────────────────────────────  the count  ────────────────────────────────
 // Strategy: find the most recent COMPLETE five wave impulse, label what came
 // after it as a correction, and if the correction is already over, label the
 // impulse that is building on top of it. With no complete impulse anywhere,
 // fall back to the longest partial impulse - and failing that, an A-B-C - that
 // ends on the newest swing.
-analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, bool allowExp, int look, float minFit, string sty, bool hasProv) =>
+analyze(array<Pivot> w, array<Pivot> subPv, bool allowDiag, bool allowTrunc, bool allowExp, int look, float minFit, string sty, bool hasProv) =>
     Count c  = Count.new(array.new<Tag>(), "No valid count", "none", 0, -1, 0.0, false)
     int   n  = w.size()
     int   iL = n - 1
@@ -424,7 +452,14 @@ analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, bool allowExp, int look
                 float  sci  = 0.0
                 bool   dgi  = false
                 int    expl = -1
+                float  bestQ  = -1.0
                 float  origin = w.get(best).price
+                // Down-up-down after a top reads either as A-B-C or as waves
+                // 1-2-3 of a new decline, and the two often score the same.
+                // The lower degree breaks the tie: if that first leg
+                // subdivides into five it is impulsive, so lean that way.
+                int    subChar = legCharacter(subPv, w.get(e).bar, w.get(e + 1).bar, allowDiag, allowTrunc)
+                float  bias = subChar > 0 ? -0.10 : 0.05
                 // t == 0 is the reversal case: no correction at all, the move
                 // off the top is impulsive in its own right. It is tried last
                 // so an equally long correction reading always wins the tie.
@@ -450,8 +485,10 @@ analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, bool allowExp, int look
                         // unless the correction before it is a complete three
                         if lgT == 1 and t < 3
                             lgT := 0
-                        if t + lgT > expl
+                        float qual = (t * scT + lgT * sciT) / math.max(1, t + lgT)
+                        if t + lgT > expl or (t + lgT == expl and qual > bestQ + bias)
                             expl := t + lgT
+                            bestQ := qual
                             cl   := t
                             scc  := scT
                             knd  := kndT
@@ -770,6 +807,7 @@ float atrv    = ta.atr(atrLen)
 float minMove = filtMode == "ATR" ? atrv * atrMult : filtMode == "Percent" ? close * pctMove / 100.0 : 0.0
 int   depthSub = math.max(2, int(math.round(depthIn * subRatio)))
 
+var array<Pivot> noSub = array.new<Pivot>()
 var Zig zMain = Zig.new(array.new<Pivot>())
 var Zig zSub  = Zig.new(array.new<Pivot>())
 zMain.step(depthIn, minMove)
@@ -786,11 +824,11 @@ var Count cSub  = Count.new(array.new<Tag>(), "No valid count", "none", 0, -1, 0
 // Recount only when a swing changed (cheap) and on the live bar (for the
 // provisional swing), instead of on every historical bar.
 if zMain.changed or barstate.islast
-    cDisp := analyze(wDisp, diagOk, truncOk, allowExp, maxLook, minConf, styMain, hpDisp)
+    cDisp := analyze(wDisp, wSub, diagOk, truncOk, allowExp, maxLook, minConf, styMain, hpDisp)
 if zMain.changed
-    cConf := analyze(wConf, diagOk, truncOk, allowExp, maxLook, minConf, styMain, false)
+    cConf := analyze(wConf, wSub, diagOk, truncOk, allowExp, maxLook, minConf, styMain, false)
 if showSub and (zSub.changed or barstate.islast)
-    cSub := analyze(wSub, diagOk, truncOk, allowExp, maxLook, minConf, stySub, hpSub)
+    cSub := analyze(wSub, noSub, diagOk, truncOk, allowExp, maxLook, minConf, stySub, hpSub)
 
 // ─────────────────────────────────  render  ──────────────────────────────────
 if barstate.islast

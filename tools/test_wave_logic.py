@@ -16,6 +16,7 @@ from wave_logic_reference import (
     leg_dir,
     run_zigzag,
     targets,
+    leg_character,
     time_targets,
 )
 
@@ -449,6 +450,55 @@ def _():
     c = analyze(w, True, True, 25, 0)
     bars, start = time_targets(w, c)
     assert bars == [] or all(b > (start or 0) for b in bars), (bars, start)
+
+
+def two_degrees(points, mm_main=20.0):
+    """Same series read at two degrees, as the indicator does."""
+    highs, lows, _ = make_series(points)
+    main, _ = run_zigzag(highs, lows, DEPTH, mm_main)
+    sub, _ = run_zigzag(highs, lows, 2, 0.0)
+    return main, sub
+
+
+# Identical main degree structure in both: 1-5 up, then down 45, up 30, down 65.
+# Only the shape *inside* that first decline differs.
+_FIVE_WAVE_LEG = [115, 100, 150, 125, 200, 175, 230, 222, 226, 214, 218, 185, 215, 150, 160]
+_THREE_WAVE_LEG = [115, 100, 150, 125, 200, 175, 230, 212, 220, 185, 215, 150, 160]
+
+
+@case("the two subdivision cases share one main degree structure")
+def _():
+    a, _ = two_degrees(_FIVE_WAVE_LEG)
+    b, _ = two_degrees(_THREE_WAVE_LEG)
+    assert [round(p.price) for p in a] == [round(p.price) for p in b], (
+        [round(p.price) for p in a], [round(p.price) for p in b]
+    )
+    assert [round(p.price) for p in a] == [100, 150, 125, 200, 175, 230, 185, 215, 150]
+
+
+@case("a first leg that subdivides in five makes the move impulsive")
+def _():
+    main, sub = two_degrees(_FIVE_WAVE_LEG)
+    assert leg_character(sub, main[5].bar, main[6].bar) == 1
+    c = analyze(main, True, True, 25, 0, sub=sub)
+    assert labels(c) == ["1", "2", "3", "4", "5", "1", "2", "3"], labels(c)
+    assert "New impulse down" in c.title, c.title
+
+
+@case("a first leg that subdivides in three keeps it a correction")
+def _():
+    main, sub = two_degrees(_THREE_WAVE_LEG)
+    assert leg_character(sub, main[5].bar, main[6].bar) == -1
+    c = analyze(main, True, True, 25, 0, sub=sub)
+    assert labels(c) == ["1", "2", "3", "4", "5", "A", "B", "C"], labels(c)
+    assert c.phase == "corrective", c.phase
+
+
+@case("with no lower degree the count falls back to the corrective reading")
+def _():
+    main, _ = two_degrees(_FIVE_WAVE_LEG)
+    c = analyze(main, True, True, 25, 0, sub=None)
+    assert labels(c) == ["1", "2", "3", "4", "5", "A", "B", "C"], labels(c)
 
 
 def main() -> int:
