@@ -19,7 +19,7 @@
 //  output as a structured, rule checked hypothesis - not as a prediction.
 // ═════════════════════════════════════════════════════════════════════════════
 
-indicator("Elliott Wave Auto-Counter v1", "EW Auto-Counter v1", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 100, max_bars_back = 500)
+indicator("Elliott Wave Auto-Counter v1", "EW Auto-Counter v1", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 200, max_bars_back = 500)
 
 // ─────────────────────────────────  inputs  ──────────────────────────────────
 const string G_DET = "Swing detection"
@@ -53,6 +53,11 @@ color  cZig     = input.color(#78909c, "Swing skeleton colour", group = G_DSP)
 bool   showTbl  = input.bool(true, "Show the count panel", group = G_DSP)
 
 bool   showTgt  = input.bool(true, "Project the next wave", group = G_TGT)
+bool   showFib  = input.bool(true, "Draw the Fibonacci grid for the wave in progress", group = G_TGT, tooltip = "A level line per ratio, anchored to the swing being measured and running out to the projection, the way the Fibonacci drawing tool looks. Retracing waves are measured back across the wave before them, extending waves are projected forward from where they began.")
+bool   showBand = input.bool(true, "Shade between the levels", group = G_TGT)
+bool   showZone = input.bool(true, "Highlight the primary target zone", group = G_TGT, tooltip = "The band the wave most often finishes in: 0.5-0.786 for a wave 2 or B, 1.618-2.618 for a wave 3, 0.236-0.5 for a wave 4, 0.618-1.618 for a wave 5, and the 0.382-0.618 golden zone for the correction after a completed impulse.")
+color  cFib     = input.color(#787b86, "Fibonacci grid colour", group = G_TGT)
+color  cZone    = input.color(#f2b900, "Target zone colour", group = G_TGT)
 bool   showTime = input.bool(true, "Project when the wave should end (Fibonacci time)", group = G_TGT, tooltip = "Waves relate to each other in time by the same ratios they relate in price. The target box is then bounded horizontally by those time projections, so it marks where the wave should end and roughly when, and the dashed vertical line is the middle estimate.")
 int    projBars = input.int(30, "Projection length (bars)", minval = 5, maxval = 300, group = G_TGT, tooltip = "How far the projection reaches when the time estimate is switched off or unavailable.")
 color  cTgt     = input.color(#00897b, "Target colour", group = G_TGT)
@@ -672,6 +677,135 @@ targets(array<Pivot> w, Count c) =>
             tx.push("Thrust = widest leg")
     [lv, tx, inval]
 
+// Fill a ratio array; trailing na arguments are skipped.
+setRatios(array<float> a, float r1, float r2, float r3, float r4, float r5, float r6) =>
+    a.clear()
+    if not na(r1)
+        a.push(r1)
+    if not na(r2)
+        a.push(r2)
+    if not na(r3)
+        a.push(r3)
+    if not na(r4)
+        a.push(r4)
+    if not na(r5)
+        a.push(r5)
+    if not na(r6)
+        a.push(r6)
+    a.size()
+
+// The Fibonacci ladder for the wave in progress, as the drawing tool draws it:
+// ratios, their prices, the bar the measurement is anchored to, what is being
+// measured, and the two ratios bounding the primary target zone. Retracing
+// waves (2, 4, B, and the correction after an impulse) are measured back
+// across the wave before them; extending waves (3, 5, C) are projected
+// forward from where they began.
+fibGrid(array<Pivot> w, Count c) =>
+    array<float> rr = array.new<float>()
+    array<float> pp = array.new<float>()
+    int    aBar  = na
+    string basis = ""
+    float  zLo   = na
+    float  zHi   = na
+    int s = c.anchor
+    int n = w.size()
+    if s >= 0 and c.legs >= 1 and s + c.legs <= n - 1
+        int   d    = legDir(w, s)
+        float p0   = w.get(s).price
+        float p1   = w.get(s + 1).price
+        float l1   = math.abs(p1 - p0)
+        float base = na
+        float span = na
+        int   sgn  = 0
+        float zr1  = na
+        float zr2  = na
+        if c.phase == "impulse"
+            if c.legs == 1                                  // wave 2 retraces wave 1
+                setRatios(rr, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0)
+                base := p1
+                span := l1
+                sgn  := -1
+                zr1  := 0.5
+                zr2  := 0.786
+                aBar := w.get(s).bar
+                basis := "retracement of wave 1"
+            else if c.legs == 2                             // wave 3 projects off wave 1
+                setRatios(rr, 1.0, 1.272, 1.618, 2.0, 2.618, 4.236)
+                base := w.get(s + 2).price
+                span := l1
+                sgn  := 1
+                zr1  := 1.618
+                zr2  := 2.618
+                aBar := w.get(s).bar
+                basis := "wave 1 projected from wave 2"
+            else if c.legs == 3                             // wave 4 retraces wave 3
+                setRatios(rr, 0.236, 0.382, 0.5, 0.618, na, na)
+                base := w.get(s + 3).price
+                span := math.abs(w.get(s + 3).price - w.get(s + 2).price)
+                sgn  := -1
+                zr1  := 0.236
+                zr2  := 0.5
+                aBar := w.get(s + 2).bar
+                basis := "retracement of wave 3"
+            else if c.legs == 4                             // wave 5 projects off wave 1
+                setRatios(rr, 0.382, 0.618, 1.0, 1.618, 2.618, na)
+                base := w.get(s + 4).price
+                span := l1
+                sgn  := 1
+                zr1  := 0.618
+                zr2  := 1.618
+                aBar := w.get(s).bar
+                basis := "wave 1 projected from wave 4"
+            else                                            // the correction to come
+                setRatios(rr, 0.236, 0.382, 0.5, 0.618, 0.786, na)
+                base := w.get(s + 5).price
+                span := math.abs(w.get(s + 5).price - p0)
+                sgn  := -1
+                zr1  := 0.382
+                zr2  := 0.618
+                aBar := w.get(s).bar
+                basis := "retracement of the impulse"
+        else if c.phase == "corrective"
+            if c.legs == 1                                  // wave B retraces wave A
+                setRatios(rr, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0)
+                base := p1
+                span := l1
+                sgn  := -1
+                zr1  := 0.5
+                zr2  := 0.786
+                aBar := w.get(s).bar
+                basis := "retracement of wave A"
+            else if c.legs == 2                             // wave C projects off wave A
+                setRatios(rr, 0.618, 1.0, 1.272, 1.618, 2.618, na)
+                base := w.get(s + 2).price
+                span := l1
+                sgn  := 1
+                zr1  := 1.0
+                zr2  := 1.618
+                aBar := w.get(s).bar
+                basis := "wave A projected from wave B"
+            else                                            // the move out of the correction
+                setRatios(rr, 0.382, 0.618, 1.0, 1.618, na, na)
+                base := w.get(s + 3).price
+                span := math.abs(w.get(s + 3).price - p0)
+                sgn  := -1
+                zr1  := 0.618
+                zr2  := 1.0
+                aBar := w.get(s).bar
+                basis := "retracement of the correction"
+        if rr.size() > 0 and not na(span) and span > 0
+            for i = 0 to rr.size() - 1
+                pp.push(base + sgn * d * rr.get(i) * span)
+            float za = base + sgn * d * zr1 * span
+            float zb = base + sgn * d * zr2 * span
+            zLo := math.min(za, zb)
+            zHi := math.max(za, zb)
+        else
+            rr.clear()
+            basis := ""
+            aBar  := na
+    [rr, pp, aBar, basis, zLo, zHi]
+
 // Bar indices where the wave in progress is projected to end. Waves relate in
 // time by the same ratios they relate in price, so each projection is a
 // Fibonacci multiple of the duration of the wave it is measured against.
@@ -772,7 +906,7 @@ drawCount(array<Pivot> w, Count c, color ci, color cc, string sz, bool legs) =>
             lbPool.push(label.new(pv.bar, pv.price, t.txt + (t.prov ? "?" : ""), color = color.new(col, t.prov ? 55 : 15), textcolor = color.white, style = pv.dir == 1 ? label.style_label_down : label.style_label_up, size = sz, yloc = yloc.price))
     m
 
-drawTargets(array<Pivot> w, Count c, int bars, color ct, color cv, bool useTime) =>
+drawTargets(array<Pivot> w, Count c, int bars, color ct, color cv, bool useTime, bool priceLines) =>
     [lv, tx, inval] = targets(w, c)
     [t1, t2, t3, st] = timeTargets(w, c)
     // drawings may not sit more than 500 bars in the future
@@ -788,11 +922,12 @@ drawTargets(array<Pivot> w, Count c, int bars, color ct, color cv, bool useTime)
         float lo = lv.min()
         float hi = lv.max()
         // the landing zone: where the wave should end, in price and in time
-        bxPool.push(box.new(xBeg, hi, xEnd, lo, border_color = color.new(ct, 70), bgcolor = color.new(ct, 92)))
-        for i = 0 to k - 1
-            float p = lv.get(i)
-            lnPool.push(line.new(bar_index, p, xEnd, p, color = color.new(ct, 20), style = line.style_dotted))
-            lbPool.push(label.new(xEnd, p, tx.get(i) + "  " + str.tostring(p, format.mintick), color = color.new(ct, 100), textcolor = ct, style = label.style_label_left, size = size.small))
+        bxPool.push(box.new(xBeg, hi, xEnd, lo, border_color = color.new(ct, 70), bgcolor = color.new(ct, priceLines ? 92 : 97)))
+        if priceLines
+            for i = 0 to k - 1
+                float p = lv.get(i)
+                lnPool.push(line.new(bar_index, p, xEnd, p, color = color.new(ct, 20), style = line.style_dotted))
+                lbPool.push(label.new(xEnd, p, tx.get(i) + "  " + str.tostring(p, format.mintick), color = color.new(ct, 100), textcolor = ct, style = label.style_label_left, size = size.small))
         if haveT and not na(t2)
             int xMid = math.min(math.max(t2, bar_index), maxX)
             lnPool.push(line.new(xMid, lo, xMid, hi, color = color.new(ct, 10), style = line.style_dashed))
@@ -801,6 +936,33 @@ drawTargets(array<Pivot> w, Count c, int bars, color ct, color cv, bool useTime)
         lnPool.push(line.new(bar_index - 1, inval, xEnd, inval, color = cv, style = line.style_dashed))
         lbPool.push(label.new(xEnd, inval, "invalidation  " + str.tostring(inval, format.mintick), color = color.new(cv, 100), textcolor = cv, style = label.style_label_left, size = size.small))
     k
+
+// The Fibonacci ladder, drawn the way the drawing tool draws it: a level line
+// per ratio running from the anchor swing out to the projection, bands shaded
+// between them, and the primary target zone filled more strongly.
+drawFib(array<Pivot> w, Count c, int bars, color cf, color cz, bool bands, bool zoneOn, bool useTime) =>
+    [rr, pp, aBar, basis, zLo, zHi] = fibGrid(w, c)
+    int m = rr.size()
+    if m > 0
+        [t1, t2, t3, st] = timeTargets(w, c)
+        int maxX = bar_index + 480
+        int xEnd = math.min(bar_index + bars, maxX)
+        if useTime and not na(t3)
+            xEnd := math.min(math.max(t3, bar_index + 2), maxX)
+        int xBeg = math.min(na(aBar) ? bar_index : aBar, bar_index)
+        if bands
+            for i = 0 to m - 2
+                bxPool.push(box.new(xBeg, pp.get(i), xEnd, pp.get(i + 1), border_color = color.new(cf, 100), bgcolor = color.new(cf, i % 2 == 0 ? 93 : 97)))
+        if zoneOn and not na(zLo)
+            bxPool.push(box.new(xBeg, zHi, xEnd, zLo, border_color = color.new(cz, 55), bgcolor = color.new(cz, 82)))
+            lbPool.push(label.new(xBeg, zHi, "target zone  " + str.tostring(zLo, format.mintick) + " - " + str.tostring(zHi, format.mintick), color = color.new(cz, 100), textcolor = cz, style = label.style_label_down, size = size.small))
+        for i = 0 to m - 1
+            float lvl = pp.get(i)
+            bool  key = not na(zLo) and lvl >= zLo and lvl <= zHi
+            lnPool.push(line.new(xBeg, lvl, xEnd, lvl, color = color.new(key ? cz : cf, key ? 10 : 45), width = key ? 2 : 1, style = key ? line.style_solid : line.style_dotted))
+            lbPool.push(label.new(xEnd, lvl, str.tostring(rr.get(i)) + "   " + str.tostring(lvl, format.mintick), color = color.new(cf, 100), textcolor = key ? cz : cf, style = label.style_label_left, size = size.small))
+        lbPool.push(label.new(xBeg, pp.get(m - 1), basis, color = color.new(cf, 100), textcolor = cf, style = label.style_label_up, size = size.small))
+    m
 
 // ──────────────────────────────────  engine  ─────────────────────────────────
 float atrv    = ta.atr(atrLen)
@@ -838,8 +1000,10 @@ if barstate.islast
     if showSub
         drawCount(wSub, cSub, color.new(cImp, 35), color.new(cCor, 35), szOf(szSub), false)
     drawCount(wDisp, cDisp, cImp, cCor, szOf(szMain), true)
+    if showFib
+        drawFib(wDisp, cDisp, projBars, cFib, cZone, showBand, showZone, showTime)
     if showTgt
-        drawTargets(wDisp, cDisp, projBars, cTgt, cInv, showTime)
+        drawTargets(wDisp, cDisp, projBars, cTgt, cInv, showTime, not showFib)
 
 // ───────────────────────────────  count panel  ───────────────────────────────
 var table tb = table.new(position.top_right, 2, 9, border_width = 1, border_color = color.new(color.gray, 60), frame_width = 1, frame_color = color.new(color.gray, 40))
@@ -851,9 +1015,12 @@ if barstate.islast and showTbl
         bull := legDir(wDisp, cDisp.anchor) == 1
     color hdr  = cDisp.phase == "none" ? color.gray : (cDisp.phase == "impulse" ? (bull ? color.new(color.teal, 20) : color.new(color.maroon, 20)) : color.new(cCor, 30))
     string nxt = cDisp.phase == "none" ? "-" : cDisp.legs >= 5 ? "structure complete" : (cDisp.phase == "impulse" ? waveTxt(cDisp.legs + 1, false, styMain) : waveTxt(math.min(cDisp.legs + 1, 5), true, styMain))
+    [rrT, ppT, aBarT, basisT, zLoT, zHiT] = fibGrid(wDisp, cDisp)
     string tgtS = "-"
-    if lvT.size() > 0
-        tgtS := str.tostring(lvT.min(), format.mintick) + "  ...  " + str.tostring(lvT.max(), format.mintick) + "   (" + str.tostring(txT.size()) + " levels)"
+    if not na(zLoT)
+        tgtS := str.tostring(zLoT, format.mintick) + "  -  " + str.tostring(zHiT, format.mintick) + "   (" + basisT + ")"
+    else if lvT.size() > 0
+        tgtS := str.tostring(lvT.min(), format.mintick) + "  ...  " + str.tostring(lvT.max(), format.mintick)
     table.cell(tb, 0, 0, "Elliott Wave Auto-Counter", text_color = color.white, bgcolor = hdr, text_size = size.small)
     table.cell(tb, 1, 0, str.tostring(math.round(cDisp.conf)) + "% fib fit", text_color = color.white, bgcolor = hdr, text_size = size.small)
     table.cell(tb, 0, 1, "Count", text_size = size.small, text_halign = text.align_left)

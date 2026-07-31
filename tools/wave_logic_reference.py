@@ -490,6 +490,79 @@ def targets(w, c) -> tuple[list[float], list[str], float | None]:
     return lv, tx, inval
 
 
+def fib_grid(w, c):
+    """The Fibonacci ladder for the wave in progress, as the drawing tool draws it.
+
+    Returns the ratios, their prices, the bar the measurement is anchored to, a
+    description of what is being measured, and the two ratios bounding the
+    primary target zone. Retracing waves (2, 4, B and the correction after an
+    impulse) are measured back across the wave before them; extending waves
+    (3, 5, C) are projected forward from where they began.
+    """
+    empty: tuple[list[float], list[float], int | None, str, tuple[float, float] | None] = ([], [], None, "", None)
+    s, n = c.anchor, len(w)
+    if s < 0 or c.legs < 1 or s + c.legs > n - 1:
+        return empty
+    d = leg_dir(w, s)
+    p = [w[s + i].price for i in range(c.legs + 1)]
+    bar = [w[s + i].bar for i in range(c.legs + 1)]
+    l1 = abs(p[1] - p[0])
+
+    ratios: tuple[float, ...] = ()
+    base = anchor = 0.0
+    length = 0.0
+    sign = 0
+    zone = None
+    basis = ""
+    anchor_bar = bar[0]
+
+    if c.phase == "impulse":
+        if c.legs == 1:                                    # wave 2 retraces wave 1
+            ratios, base, length, sign = (0.236, 0.382, 0.5, 0.618, 0.786, 1.0), p[1], l1, -1
+            zone, basis, anchor_bar = (0.5, 0.786), "retracement of wave 1", bar[0]
+        elif c.legs == 2:                                  # wave 3 projects off wave 1
+            ratios, base, length, sign = (1.0, 1.272, 1.618, 2.0, 2.618, 4.236), p[2], l1, 1
+            zone, basis, anchor_bar = (1.618, 2.618), "wave 1 projected from wave 2", bar[0]
+        elif c.legs == 3:                                  # wave 4 retraces wave 3
+            l3 = abs(p[3] - p[2])
+            ratios, base, length, sign = (0.236, 0.382, 0.5, 0.618), p[3], l3, -1
+            zone, basis, anchor_bar = (0.236, 0.5), "retracement of wave 3", bar[2]
+        elif c.legs == 4:                                  # wave 5 projects off wave 1
+            ratios, base, length, sign = (0.382, 0.618, 1.0, 1.618, 2.618), p[4], l1, 1
+            zone, basis, anchor_bar = (0.618, 1.618), "wave 1 projected from wave 4", bar[0]
+        else:                                              # the correction to come
+            total = abs(p[5] - p[0])
+            ratios, base, length, sign = (0.236, 0.382, 0.5, 0.618, 0.786), p[5], total, -1
+            zone, basis, anchor_bar = (0.382, 0.618), "retracement of the impulse", bar[0]
+    elif c.phase == "corrective":
+        if c.legs == 1:                                    # wave B retraces wave A
+            ratios, base, length, sign = (0.236, 0.382, 0.5, 0.618, 0.786, 1.0), p[1], l1, -1
+            zone, basis, anchor_bar = (0.5, 0.786), "retracement of wave A", bar[0]
+        elif c.legs == 2:                                  # wave C projects off wave A
+            ratios, base, length, sign = (0.618, 1.0, 1.272, 1.618, 2.618), p[2], l1, 1
+            zone, basis, anchor_bar = (1.0, 1.618), "wave A projected from wave B", bar[0]
+        else:                                              # the move out of the correction
+            total = abs(p[3] - p[0])
+            ratios, base, length, sign = (0.382, 0.618, 1.0, 1.618), p[3], total, -1
+            zone, basis, anchor_bar = (0.618, 1.0), "retracement of the correction", bar[0]
+    if not ratios or length <= 0:
+        return empty
+
+    prices = [base + sign * d * r * length for r in ratios]
+    return list(ratios), prices, anchor_bar, basis, zone
+
+
+def fib_zone_prices(ratios, prices, zone):
+    """The two prices bounding the primary target zone, low first."""
+    if not zone or not ratios:
+        return None, None
+    lo = prices[ratios.index(zone[0])] if zone[0] in ratios else None
+    hi = prices[ratios.index(zone[1])] if zone[1] in ratios else None
+    if lo is None or hi is None:
+        return None, None
+    return min(lo, hi), max(lo, hi)
+
+
 def time_targets(w, c) -> tuple[list[int], int | None]:
     """Bar indices where the wave in progress is projected to end.
 

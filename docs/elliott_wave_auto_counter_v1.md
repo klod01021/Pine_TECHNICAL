@@ -59,7 +59,19 @@ Notation can be set per degree: `1 2 3 4 5 / A B C`, `(1) (2) (3) / (a) (b) (c)`
 
 Once a count is on the chart the script projects where the wave in progress should finish, in price and in time.
 
-**Price** comes from the Fibonacci relationships between waves: wave 3 measured from wave 1, wave 4 from wave 3, wave 5 from wave 1 and from wave 1 plus wave 3, and a retracement of the whole impulse once five waves are complete.
+**Price** is drawn as a full Fibonacci grid, the same construction as the drawing tool: a level line per ratio, anchored to the swing being measured and extended out to the projection, labelled with ratio and price, with the bands between levels lightly shaded.
+
+| Wave in progress | Measured as | Ratios | Primary zone |
+| --- | --- | --- | --- |
+| Wave 2 | retracement of wave 1 | 0.236-1.0 | 0.5-0.786 |
+| Wave 3 | wave 1 projected from the end of wave 2 | 1.0-4.236 | 1.618-2.618 |
+| Wave 4 | retracement of wave 3 | 0.236-0.618 | 0.236-0.5 |
+| Wave 5 | wave 1 projected from the end of wave 4 | 0.382-2.618 | 0.618-1.618 |
+| The correction | retracement of the whole impulse | 0.236-0.786 | 0.382-0.618 |
+| Wave B | retracement of wave A | 0.236-1.0 | 0.5-0.786 |
+| Wave C | wave A projected from the end of wave B | 0.618-2.618 | 1.0-1.618 |
+
+The primary zone is drawn as a brighter band with its levels thickened, and its two prices are what the panel reports as the target zone. It is where the wave most often finishes, not where it must.
 
 **Time** comes from the same ratios applied to duration, because waves relate in time much as they do in price:
 

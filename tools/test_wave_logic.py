@@ -16,6 +16,8 @@ from wave_logic_reference import (
     leg_dir,
     run_zigzag,
     targets,
+    fib_grid,
+    fib_zone_prices,
     leg_character,
     time_targets,
 )
@@ -450,6 +452,91 @@ def _():
     c = analyze(w, True, True, 25, 0)
     bars, start = time_targets(w, c)
     assert bars == [] or all(b > (start or 0) for b in bars), (bars, start)
+
+
+@case("wave B gets a retracement ladder measured across wave A")
+def _():
+    w, _ = pivots_of([115, 100, 120, 110, 150, 135, 165, 140, 145])
+    c = analyze(w, True, True, 25, 0)
+    assert c.phase == "corrective" and c.legs == 1, (c.phase, c.legs)
+    ratios, prices, anchor, basis, zone = fib_grid(w, c)
+    p0, p1 = w[5].price, w[6].price          # wave A runs from the top down
+    assert ratios == [0.236, 0.382, 0.5, 0.618, 0.786, 1.0], ratios
+    for r, px in zip(ratios, prices):
+        assert math.isclose(px, p1 - r * (p1 - p0)), (r, px)
+    assert anchor == w[5].bar and zone == (0.5, 0.786)
+    lo, hi = fib_zone_prices(ratios, prices, zone)
+    assert p1 < lo < hi < p0, (p1, lo, hi, p0)   # B retraces back up inside A
+    assert "retracement of wave A" in basis
+
+
+@case("wave 3 gets an extension ladder projected from wave 2")
+def _():
+    w, _ = pivots_of([115, 100, 120, 110, 130])
+    c = analyze(w, True, True, 25, 0)
+    assert c.legs == 2, c.legs
+    ratios, prices, anchor, basis, zone = fib_grid(w, c)
+    p0, p1, p2 = (w[i].price for i in range(3))
+    l1 = p1 - p0
+    assert ratios[0] == 1.0 and ratios[-1] == 4.236
+    for r, px in zip(ratios, prices):
+        assert math.isclose(px, p2 + r * l1), (r, px)
+    lo, hi = fib_zone_prices(ratios, prices, zone)
+    assert math.isclose(lo, p2 + 1.618 * l1) and math.isclose(hi, p2 + 2.618 * l1)
+
+
+@case("a completed impulse gets the golden zone as its target")
+def _():
+    w, _ = pivots_of([115, 100, 120, 110, 150, 135, 165, 160])
+    c = analyze(w, True, True, 25, 0)
+    assert c.legs == 5
+    ratios, prices, anchor, basis, zone = fib_grid(w, c)
+    p0, p5 = w[0].price, w[5].price
+    assert zone == (0.382, 0.618)
+    lo, hi = fib_zone_prices(ratios, prices, zone)
+    assert math.isclose(hi, p5 - 0.382 * (p5 - p0))
+    assert math.isclose(lo, p5 - 0.618 * (p5 - p0))
+    assert p0 < lo < hi < p5
+
+
+@case("the bear ladder projects downwards")
+def _():
+    w, _ = pivots_of([85, 100, 80, 90, 85])
+    c = analyze(w, True, True, 25, 0)
+    assert c.legs == 2, c.legs
+    ratios, prices, anchor, basis, zone = fib_grid(w, c)
+    assert all(px < w[2].price for px in prices), prices
+    assert prices == sorted(prices, reverse=True), prices
+
+
+@case("every count that has price targets also has a ladder")
+def _():
+    import random
+
+    random.seed(11)
+    checked = 0
+    for _ in range(120):
+        bars = random.randint(80, 300)
+        price = 100.0
+        highs, lows = [], []
+        for _ in range(bars):
+            price *= 1 + random.gauss(0, 0.013)
+            rng = abs(random.gauss(0, 0.006)) * price
+            highs.append(price + rng)
+            lows.append(price - rng)
+        w, hp = run_zigzag(highs, lows, 5, 0.0, True)
+        c = analyze(w, True, True, 25, 0, has_prov=hp)
+        lv, _, _ = targets(w, c)
+        ratios, prices, anchor, basis, zone = fib_grid(w, c)
+        if lv and c.phase in ("impulse", "corrective"):
+            assert ratios and prices, (c.phase, c.legs)
+            assert len(ratios) == len(prices)
+            assert all(math.isfinite(x) for x in prices)
+            lo, hi = fib_zone_prices(ratios, prices, zone)
+            assert lo is not None and lo <= hi
+            assert min(prices) <= lo <= hi <= max(prices)
+            checked += 1
+    assert checked > 40, checked
 
 
 def two_degrees(points, mm_main=20.0):
