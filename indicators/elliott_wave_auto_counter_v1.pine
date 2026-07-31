@@ -275,7 +275,8 @@ impulseFit(array<Pivot> w, int s, int legs, bool allowDiag, bool allowTrunc) =>
 
 // A-B-C. Corrections are far looser than impulses, so only the obviously
 // impossible shapes are rejected and the rest is scored.
-correctiveFit(array<Pivot> w, int s, int legs, bool allowExpanded) =>
+// `limit` is the origin of the move being corrected, or na when there is none.
+correctiveFit(array<Pivot> w, int s, int legs, bool allowExpanded, float limit) =>
     int  n  = w.size()
     bool ok = s >= 0 and legs >= 1 and legs <= 3 and (s + legs) <= (n - 1)
     int   d    = 0
@@ -316,13 +317,20 @@ correctiveFit(array<Pivot> w, int s, int legs, bool allowExpanded) =>
         if ok
             acc += fit4(rc, 0.618, 1.0, 1.618, 2.618)
             cnt += 1
+    if ok and not na(limit)
+        // A correction retraces part of a move. Once it erases the whole thing
+        // and trades past where that move began, it is not correcting it any
+        // more, it is a new impulse in the other direction.
+        for k = 1 to legs
+            if d * w.get(s + k).price > d * limit
+                ok := false
     float sc = ok and cnt > 0 ? acc / cnt : 0.0
     if rb > 1.0
         sc := sc * 0.85
     [ok, sc, knd]
 
 // Contracting triangle: every leg shorter than the leg two places before it.
-triangleFit(array<Pivot> w, int s, int legs) =>
+triangleFit(array<Pivot> w, int s, int legs, float limit) =>
     int  n  = w.size()
     bool ok = s >= 0 and legs >= 4 and legs <= 5 and (s + legs) <= (n - 1)
     float e1 = na
@@ -346,6 +354,8 @@ triangleFit(array<Pivot> w, int s, int legs) =>
         float qs = dt * w.get(s).price
         for k = 1 to legs
             if dt * w.get(s + k).price <= qs
+                ok := false
+            if not na(limit) and dt * w.get(s + k).price > dt * limit
                 ok := false
     ok
 
@@ -391,7 +401,7 @@ analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, bool allowExp, int look
         int rem = iL - e
         if rem > 0
             int  triLegs = math.min(rem, 5)
-            bool tri     = rem >= 4 and triangleFit(w, e, triLegs)
+            bool tri     = rem >= 4 and triangleFit(w, e, triLegs, w.get(best).price)
             if tri
                 for k = 1 to triLegs
                     c.tags.push(Tag.new(e + k, waveTxt(k, true, sty), true, hasProv and e + k == iL))
@@ -413,8 +423,15 @@ analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, bool allowExp, int look
                 float  sci  = 0.0
                 bool   dgi  = false
                 int    expl = -1
-                for t = math.min(rem, 3) to 1
-                    [okT, scT, kndT] = correctiveFit(w, e, t, allowExp)
+                float  origin = w.get(best).price
+                // t == 0 is the reversal case: no correction at all, the move
+                // off the top is impulsive in its own right. It is tried last
+                // so an equally long correction reading always wins the tie.
+                for t = math.min(rem, 3) to 0
+                    [okC, scC, kndC] = correctiveFit(w, e, math.max(t, 1), allowExp, origin)
+                    bool   okT  = t == 0 ? true : okC
+                    float  scT  = t == 0 ? 0.0 : scC
+                    string kndT = t == 0 ? "Correction" : kndC
                     if okT
                         int   lgT  = 0
                         float sciT = 0.0
@@ -443,12 +460,12 @@ analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, bool allowExp, int look
                 if cl > 0
                     for k = 1 to cl
                         c.tags.push(Tag.new(e + k, waveTxt(k, true, sty), true, hasProv and e + k == iL))
-                c.phase  := "corrective"
-                c.legs   := cl
-                c.anchor := e
-                if cl >= 2
-                    c.conf := scc * 100
-                c.title  := knd + (cl < 3 ? " in progress, wave " + waveTxt(cl + 1, true, sty) : " complete")
+                    c.phase  := "corrective"
+                    c.legs   := cl
+                    c.anchor := e
+                    if cl >= 2
+                        c.conf := scc * 100
+                    c.title  := knd + (cl < 3 ? " in progress, wave " + waveTxt(cl + 1, true, sty) : " complete")
                 if lg > 0
                     int s2 = e + cl
                     for k = 1 to lg
@@ -488,7 +505,7 @@ analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, bool allowExp, int look
         else if n >= 3
             int cl = math.min(n - 1, 3)
             int s  = iL - cl
-            [okD, scD, kndD] = correctiveFit(w, s, cl, allowExp)
+            [okD, scD, kndD] = correctiveFit(w, s, cl, allowExp, na)
             if okD
                 for k = 1 to cl
                     c.tags.push(Tag.new(s + k, waveTxt(k, true, sty), true, hasProv and s + k == iL))

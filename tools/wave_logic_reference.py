@@ -197,7 +197,7 @@ def impulse_fit(w, s, legs, allow_diag, allow_trunc):
     return ok, sc, dg
 
 
-def corrective_fit(w, s, legs, allow_expanded=False):
+def corrective_fit(w, s, legs, allow_expanded=False, limit_price=None):
     n = len(w)
     ok = s >= 0 and 1 <= legs <= 3 and (s + legs) <= (n - 1)
     d = q0 = q1 = q2 = q3 = la = rb = rc = 0.0
@@ -229,13 +229,20 @@ def corrective_fit(w, s, legs, allow_expanded=False):
         if ok:
             total += fit4(rc, 0.618, 1.0, 1.618, 2.618)
             cnt += 1
+    if ok and limit_price is not None:
+        # A correction retraces part of a move. Once it erases the whole thing
+        # and trades past where that move began, it is not correcting it any
+        # more, it is a new impulse in the other direction.
+        for k in range(1, legs + 1):
+            if d * w[s + k].price > d * limit_price:
+                ok = False
     sc = total / cnt if (ok and cnt > 0) else 0.0
     if rb > 1.0:
         sc *= 0.85
     return ok, sc, knd
 
 
-def triangle_fit(w, s, legs):
+def triangle_fit(w, s, legs, limit_price=None):
     n = len(w)
     ok = s >= 0 and 4 <= legs <= 5 and (s + legs) <= (n - 1)
     e3 = 0.0
@@ -254,6 +261,8 @@ def triangle_fit(w, s, legs):
         d = leg_dir(w, s)
         q0 = d * w[s].price
         ok = all(d * w[s + k].price > q0 for k in range(1, legs + 1))
+        if ok and limit_price is not None:
+            ok = all(d * w[s + k].price <= d * limit_price for k in range(1, legs + 1))
     return ok
 
 
@@ -286,7 +295,7 @@ def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", 
         rem = i_last - e
         if rem > 0:
             tri_legs = min(rem, 5)
-            tri = rem >= 4 and triangle_fit(w, e, tri_legs)
+            tri = rem >= 4 and triangle_fit(w, e, tri_legs, w[best].price)
             if tri:
                 for k in range(1, tri_legs + 1):
                     c.tags.append(Tag(e + k, wave_txt(k, True, sty), True, has_prov and e + k == i_last))
@@ -302,8 +311,14 @@ def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", 
                 cl, sc_c, knd = 0, 0.0, "Correction"
                 lg, sc_i, dg_i = 0, 0.0, False
                 explained = -1
-                for t in range(min(rem, 3), 0, -1):
-                    ok_t, sc_t, knd_t = corrective_fit(w, e, t, allow_expanded)
+                origin = w[best].price
+                # t == 0 is the reversal case: no correction at all, the move
+                # off the top is impulsive in its own right. It is tried last
+                # so an equally long correction reading always wins the tie.
+                for t in range(min(rem, 3), -1, -1):
+                    ok_t, sc_t, knd_t = True, 0.0, "Correction"
+                    if t > 0:
+                        ok_t, sc_t, knd_t = corrective_fit(w, e, t, allow_expanded, origin)
                     if not ok_t:
                         continue
                     lg_t, sci_t, dgi_t = 0, 0.0, False
@@ -322,12 +337,13 @@ def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", 
                         lg, sc_i, dg_i = lg_t, sci_t, dgi_t
                 for k in range(1, cl + 1):
                     c.tags.append(Tag(e + k, wave_txt(k, True, sty), True, has_prov and e + k == i_last))
-                c.phase, c.legs, c.anchor = "corrective", cl, e
-                if cl >= 2:
-                    c.conf = sc_c * 100
-                c.title = knd + (
-                    " in progress, wave " + wave_txt(cl + 1, True, sty) if cl < 3 else " complete"
-                )
+                if cl > 0:
+                    c.phase, c.legs, c.anchor = "corrective", cl, e
+                    if cl >= 2:
+                        c.conf = sc_c * 100
+                    c.title = knd + (
+                        " in progress, wave " + wave_txt(cl + 1, True, sty) if cl < 3 else " complete"
+                    )
                 if lg > 0:
                     s2 = e + cl
                     for k in range(1, lg + 1):

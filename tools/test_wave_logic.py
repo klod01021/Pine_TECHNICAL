@@ -219,6 +219,26 @@ def _():
     assert "unresolved" in c.title, c.title
 
 
+@case("a move that retraces the whole impulse is a new impulse, not a correction")
+def _():
+    # 1-5 up from 100 to 165, then a decline clean through 100: whatever that
+    # is, it is not a correction of the move it just erased
+    w, _ = pivots_of([115, 100, 120, 110, 150, 135, 165, 120, 140, 90, 100])
+    c = analyze(w, True, True, 25, 0)
+    assert labels(c) == ["1", "2", "3", "4", "5", "1", "2", "3"], labels(c)
+    assert not any(t.corr for t in c.tags), labels(c)
+    assert c.phase == "impulse" and "New impulse down" in c.title, c.title
+
+
+@case("a deep but contained correction is still A-B-C")
+def _():
+    # retraces most of the impulse yet holds above its origin at 100
+    w, _ = pivots_of([115, 100, 120, 110, 150, 135, 165, 110, 140, 105, 112])
+    c = analyze(w, True, True, 25, 0)
+    assert labels(c) == ["1", "2", "3", "4", "5", "A", "B", "C"], labels(c)
+    assert c.phase == "corrective", c.phase
+
+
 @case("a correction may not finish above the top it is correcting")
 def _():
     # after the 5-wave top at 165, price makes a HIGHER high at 175: whatever
@@ -349,8 +369,17 @@ def _():
                 q = [d * w[c.anchor + i].price for i in range(6)]
                 e1, e3, e5 = q[1] - q[0], q[3] - q[2], q[5] - q[4]
                 assert (e3 < e1 and e5 < e3) or (e3 > e1 and e5 > e3), (e1, e3, e5)
-            # no corrective label may sit past the move it is correcting
+            # a correction that follows a labelled impulse must hold that
+            # impulse's origin, or it is a new impulse rather than a correction
             corr = [t for t in c.tags if t.corr]
+            if corr and c.tags and not c.tags[0].corr:
+                o = c.tags[0].pi - 1
+                d = leg_dir(w, corr[0].pi - 1)
+                for t in corr:
+                    assert d * w[t.pi].price <= d * w[o].price + 1e-9, (
+                        f"{t.txt} at {w[t.pi].price} retraces past the origin {w[o].price}"
+                    )
+            # no corrective label may sit past the move it is correcting
             if corr:
                 a = corr[0].pi - 1
                 d = leg_dir(w, a)
