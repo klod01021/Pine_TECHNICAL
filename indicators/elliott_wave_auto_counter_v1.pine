@@ -255,6 +255,12 @@ impulseFit(array<Pivot> w, int s, int legs, bool allowDiag, bool allowTrunc) =>
         l5 := q5 - q4
         tr := q5 <= q3
         ok := l5 > 0 and (allowTrunc or not tr) and not (l3 < l1 and l3 < l5)    // R2
+        // An overlap is only forgiven for a diagonal, and a diagonal is a
+        // wedge: its impulse legs either narrow or widen throughout. Without
+        // this an overlapping count is free to staple two unrelated moves
+        // together and call the result a diagonal.
+        if ok and dg
+            ok := (l3 < l1 and l5 < l3) or (l3 > l1 and l5 > l3)
         if ok
             acc += fit4(l5 / l1, 0.382, 0.618, 1.0, 1.618)
             cnt += 1
@@ -394,19 +400,46 @@ analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, bool allowExp, int look
                 c.anchor := e
                 c.title  := "Contracting triangle after the impulse"
             else
-                // Label only as much of the correction as actually validates:
-                // try A-B-C, then A-B, then A. Anything past that is left bare
-                // rather than dressed up in letters it has not earned.
-                int    cl  = 0
-                float  scc = 0.0
-                string knd = "Correction"
+                // Split what follows the impulse into a correction and, if the
+                // trend has already resumed, the new impulse riding on it.
+                // Only as much of the correction as validates is labelled -
+                // A-B-C, then A-B, then A - and of the splits that survive,
+                // the one accounting for the most swings wins. Ties go to the
+                // longest correction, since three legs is the normal shape.
+                int    cl   = 0
+                float  scc  = 0.0
+                string knd  = "Correction"
+                int    lg   = 0
+                float  sci  = 0.0
+                bool   dgi  = false
+                int    expl = -1
                 for t = math.min(rem, 3) to 1
-                    if cl == 0
-                        [okT, scT, kndT] = correctiveFit(w, e, t, allowExp)
-                        if okT
-                            cl  := t
-                            scc := scT
-                            knd := kndT
+                    [okT, scT, kndT] = correctiveFit(w, e, t, allowExp)
+                    if okT
+                        int   lgT  = 0
+                        float sciT = 0.0
+                        bool  dgiT = false
+                        int   maxL = math.min(rem - t, 5)
+                        if maxL >= 1
+                            for nl = maxL to 1
+                                if lgT == 0
+                                    [okI, sciX, dgiX] = impulseFit(w, e + t, nl, allowDiag, allowTrunc)
+                                    if okI
+                                        lgT  := nl
+                                        sciT := sciX
+                                        dgiT := dgiX
+                        // a single leg is too little to call a new impulse
+                        // unless the correction before it is a complete three
+                        if lgT == 1 and t < 3
+                            lgT := 0
+                        if t + lgT > expl
+                            expl := t + lgT
+                            cl   := t
+                            scc  := scT
+                            knd  := kndT
+                            lg   := lgT
+                            sci  := sciT
+                            dgi  := dgiT
                 if cl > 0
                     for k = 1 to cl
                         c.tags.push(Tag.new(e + k, waveTxt(k, true, sty), true, hasProv and e + k == iL))
@@ -416,24 +449,19 @@ analyze(array<Pivot> w, bool allowDiag, bool allowTrunc, bool allowExp, int look
                 if cl >= 2
                     c.conf := scc * 100
                 c.title  := knd + (cl < 3 ? " in progress, wave " + waveTxt(cl + 1, true, sty) : " complete")
-                if cl < 3 and rem > cl
+                if lg > 0
+                    int s2 = e + cl
+                    for k = 1 to lg
+                        c.tags.push(Tag.new(s2 + k, waveTxt(k, false, sty), false, hasProv and s2 + k == iL))
+                    int dir2 = legDir(w, s2)
+                    c.phase  := "impulse"
+                    c.legs   := lg
+                    c.anchor := s2
+                    c.conf   := sci * 100
+                    c.diag   := dgi
+                    c.title  := "New impulse " + (dir2 == 1 ? "up" : "down") + ", wave " + waveTxt(math.min(lg + 1, 5), false, sty) + " in progress"
+                else if rem > cl
                     c.title := c.title + ", structure past it unresolved"
-                if cl == 3 and rem > 3
-                    int s2  = e + 3
-                    int lg2 = math.min(rem - 3, 5)
-                    [ok2, sc2, dg2] = impulseFit(w, s2, lg2, allowDiag, allowTrunc)
-                    if ok2
-                        for k = 1 to lg2
-                            c.tags.push(Tag.new(s2 + k, waveTxt(k, false, sty), false, hasProv and s2 + k == iL))
-                        int dir2 = legDir(w, s2)
-                        c.phase  := "impulse"
-                        c.legs   := lg2
-                        c.anchor := s2
-                        c.conf   := sc2 * 100
-                        c.diag   := dg2
-                        c.title  := "New impulse " + (dir2 == 1 ? "up" : "down") + ", wave " + waveTxt(math.min(lg2 + 1, 5), false, sty) + " in progress"
-                    else
-                        c.title := c.title + ", structure past it unresolved"
     else
         // no complete impulse: take the longest partial one ending on the last swing
         int   lg  = 0

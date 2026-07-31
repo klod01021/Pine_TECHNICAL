@@ -179,6 +179,11 @@ def impulse_fit(w, s, legs, allow_diag, allow_trunc):
         l5 = q5 - q4
         trunc = q5 <= q3
         ok = l5 > 0 and (allow_trunc or not trunc) and not (l3 < l1 and l3 < l5)  # R2
+        # An overlap is only forgiven for a diagonal, and a diagonal is a wedge:
+        # its impulse legs either narrow or widen throughout. Without this an
+        # overlapping count is free to staple two unrelated moves together.
+        if ok and dg:
+            ok = (l3 < l1 and l5 < l3) or (l3 > l1 and l5 > l3)
         if ok:
             total += fit4(l5 / l1, 0.382, 0.618, 1.0, 1.618)
             cnt += 1
@@ -288,15 +293,33 @@ def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", 
                 c.phase, c.legs, c.anchor = "triangle", tri_legs, e
                 c.title = "Contracting triangle after the impulse"
             else:
-                # Label only as much of the correction as actually validates:
-                # try A-B-C, then A-B, then A. Anything past that is left bare
-                # rather than dressed up in letters it has not earned.
+                # Split what follows the impulse into a correction and, if the
+                # trend has already resumed, the new impulse riding on it. Only
+                # as much of the correction as validates is labelled - A-B-C,
+                # then A-B, then A - and of the splits that survive, the one
+                # accounting for the most swings wins. Ties go to the longest
+                # correction, since three legs is the normal shape.
                 cl, sc_c, knd = 0, 0.0, "Correction"
+                lg, sc_i, dg_i = 0, 0.0, False
+                explained = -1
                 for t in range(min(rem, 3), 0, -1):
-                    if cl == 0:
-                        ok_t, sc_t, knd_t = corrective_fit(w, e, t, allow_expanded)
-                        if ok_t:
-                            cl, sc_c, knd = t, sc_t, knd_t
+                    ok_t, sc_t, knd_t = corrective_fit(w, e, t, allow_expanded)
+                    if not ok_t:
+                        continue
+                    lg_t, sci_t, dgi_t = 0, 0.0, False
+                    for length in range(min(rem - t, 5), 0, -1):
+                        if lg_t == 0:
+                            ok_i, sci, dgi = impulse_fit(w, e + t, length, allow_diag, allow_trunc)
+                            if ok_i:
+                                lg_t, sci_t, dgi_t = length, sci, dgi
+                    # a single leg is too little to call a new impulse unless
+                    # the correction before it is a complete three
+                    if lg_t == 1 and t < 3:
+                        lg_t = 0
+                    if t + lg_t > explained:
+                        explained = t + lg_t
+                        cl, sc_c, knd = t, sc_t, knd_t
+                        lg, sc_i, dg_i = lg_t, sci_t, dgi_t
                 for k in range(1, cl + 1):
                     c.tags.append(Tag(e + k, wave_txt(k, True, sty), True, has_prov and e + k == i_last))
                 c.phase, c.legs, c.anchor = "corrective", cl, e
@@ -305,22 +328,17 @@ def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", 
                 c.title = knd + (
                     " in progress, wave " + wave_txt(cl + 1, True, sty) if cl < 3 else " complete"
                 )
-                if cl < 3 and rem > cl:
+                if lg > 0:
+                    s2 = e + cl
+                    for k in range(1, lg + 1):
+                        c.tags.append(Tag(s2 + k, wave_txt(k, False, sty), False, has_prov and s2 + k == i_last))
+                    dir2 = leg_dir(w, s2)
+                    c.phase, c.legs, c.anchor = "impulse", lg, s2
+                    c.conf, c.diag = sc_i * 100, dg_i
+                    c.title = ("New impulse " + ("up" if dir2 == 1 else "down") + ", wave "
+                               + wave_txt(min(lg + 1, 5), False, sty) + " in progress")
+                elif rem > cl:
                     c.title += ", structure past it unresolved"
-                if cl == 3 and rem > 3:
-                    s2 = e + 3
-                    lg2 = min(rem - 3, 5)
-                    ok2, sc2, dg2 = impulse_fit(w, s2, lg2, allow_diag, allow_trunc)
-                    if ok2:
-                        for k in range(1, lg2 + 1):
-                            c.tags.append(Tag(s2 + k, wave_txt(k, False, sty), False, has_prov and s2 + k == i_last))
-                        dir2 = leg_dir(w, s2)
-                        c.phase, c.legs, c.anchor = "impulse", lg2, s2
-                        c.conf, c.diag = sc2 * 100, dg2
-                        c.title = ("New impulse " + ("up" if dir2 == 1 else "down") + ", wave "
-                                   + wave_txt(min(lg2 + 1, 5), False, sty) + " in progress")
-                    else:
-                        c.title += ", structure past it unresolved"
     else:
         lg, sc0, dg0 = 0, 0.0, False
         for i in range(0, 3):

@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import sys
 
-from wave_logic_reference import Zig, analyze, leg_dir, run_zigzag, targets
+from wave_logic_reference import Zig, analyze, impulse_fit, leg_dir, run_zigzag, targets
 
 EPS = 0.05
 DEPTH = 5
@@ -180,6 +180,45 @@ def _():
     assert labels(c)[5:] == ["A", "B", "C", "D", "E"], labels(c)
 
 
+@case("a new impulse is counted even after a one-legged correction")
+def _():
+    # 1-5 up to 165, one sharp leg down to 140, then an obvious new 1-2-3 up.
+    # This must not be smeared into a "diagonal" spanning both moves.
+    w, _ = pivots_of([115, 100, 120, 110, 150, 135, 165, 140, 170, 158, 200, 190])
+    c = analyze(w, True, True, 25, 0)
+    assert labels(c) == ["1", "2", "3", "4", "5", "A", "1", "2", "3"], labels(c)
+    assert c.phase == "impulse" and c.legs == 3, (c.phase, c.legs)
+    assert "New impulse up" in c.title, c.title
+
+
+@case("an overlapping count must be a real wedge to pass as a diagonal")
+def _():
+    # wave 4 overlaps wave 1 but the legs do not narrow, so this is not a
+    # diagonal, it is two different moves being stitched together
+    w, _ = pivots_of([145, 135, 165, 140, 170, 158, 200, 190])
+    for s in range(0, max(1, len(w) - 5)):
+        ok, sc, dg = impulse_fit(w, s, 5, True, True)
+        assert not (ok and dg), f"non-wedge overlap accepted at s={s}"
+
+
+@case("a genuine contracting diagonal is still accepted")
+def _():
+    # each impulse leg shorter than the last, wave 4 back inside wave 1
+    w, _ = pivots_of([110, 100, 130, 115, 137, 122, 140, 138])
+    ok, sc, dg = impulse_fit(w, 0, 5, True, True)
+    assert ok and dg, (ok, dg)
+    c = analyze(w, True, True, 25, 0)
+    assert c.title.startswith("Diagonal up"), c.title
+
+
+@case("one lone leg after a short correction is not called an impulse")
+def _():
+    w, _ = pivots_of([115, 100, 120, 110, 150, 135, 165, 140, 175, 170])
+    c = analyze(w, True, True, 25, 0)
+    assert labels(c) == ["1", "2", "3", "4", "5", "A"], labels(c)
+    assert "unresolved" in c.title, c.title
+
+
 @case("a correction may not finish above the top it is correcting")
 def _():
     # after the 5-wave top at 165, price makes a HIGHER high at 175: whatever
@@ -304,6 +343,12 @@ def _():
             assert all(0 < i < len(w) for i in idx), (idx, len(w))
             assert idx == sorted(idx) and len(set(idx)) == len(idx), idx
             assert 0.0 <= c.conf <= 100.0, c.conf
+            # any accepted overlap must be a genuine wedge
+            if c.diag and c.legs == 5 and c.anchor >= 0:
+                d = leg_dir(w, c.anchor)
+                q = [d * w[c.anchor + i].price for i in range(6)]
+                e1, e3, e5 = q[1] - q[0], q[3] - q[2], q[5] - q[4]
+                assert (e3 < e1 and e5 < e3) or (e3 > e1 and e5 > e3), (e1, e3, e5)
             # no corrective label may sit past the move it is correcting
             corr = [t for t in c.tags if t.corr]
             if corr:
