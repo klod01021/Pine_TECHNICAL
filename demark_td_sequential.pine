@@ -1,0 +1,280 @@
+//@version=6
+// =============================================================================
+//  DeMark TD Sequential
+//  TD Price Flip -> TD Setup (1..9) -> TD Countdown (1..13) + TDST levels
+//
+//  Rules implemented (Tom DeMark, "The New Science of Technical Analysis"):
+//
+//  TD Price Flip
+//    Bearish flip : close[1] > close[5] and close < close[4]  -> starts a buy setup
+//    Bullish flip : close[1] < close[5] and close > close[4]  -> starts a sell setup
+//
+//  TD Setup (9 consecutive bars)
+//    Buy setup  : every bar closes below the close four bars earlier
+//    Sell setup : every bar closes above the close four bars earlier
+//    A single failing bar resets the count; a new setup needs a new price flip.
+//
+//  Setup perfection
+//    Buy  : min(low  of bars 8, 9) <= min(low  of bars 6, 7)
+//    Sell : max(high of bars 8, 9) >= max(high of bars 6, 7)
+//    If unmet at bar 9 the setup can still be perfected by a later bar that
+//    trades through the bar 6/7 extreme (deferred perfection).
+//
+//  TDST levels
+//    Buy setup  -> resistance at the highest true high of bars 1..9
+//    Sell setup -> support    at the lowest  true low  of bars 1..9
+//
+//  TD Countdown (13 bars, non consecutive, armed by a completed setup)
+//    Buy  : close <= low  two bars earlier
+//    Sell : close >= high two bars earlier
+//    Bar 13 qualifier: the low (high) of bar 13 must be at or beyond the close
+//    of countdown bar 8, otherwise the bar is deferred and marked "+".
+//    A completed setup in the opposite direction cancels the countdown.
+// =============================================================================
+
+indicator("DeMark TD Sequential", "TD SEQ", overlay = true, max_labels_count = 500, max_lines_count = 500)
+
+// ------------------------------------------------------------------- inputs --
+GS = "TD Setup"
+GC = "TD Countdown"
+GT = "TDST Levels"
+GA = "Appearance"
+
+showSetup    = input.bool(true, "Show setup counts", group = GS)
+minCount     = input.int(1, "Start plotting counts at", minval = 1, maxval = 9, group = GS,
+                         tooltip = "Raise to 7 or 8 to keep the chart clean and only see the end of each setup.")
+showPerf     = input.bool(true, "Mark perfected setups", group = GS)
+perfWindow   = input.int(8, "Bars allowed for deferred perfection", minval = 0, maxval = 50, group = GS)
+
+showCD       = input.bool(true, "Show countdown counts", group = GC)
+aggressiveCD = input.bool(false, "Aggressive countdown", group = GC,
+                          tooltip = "Compare the current low/high with the low/high two bars earlier instead of using the close.")
+useQualifier = input.bool(true, "Apply the bar 13 qualifier", group = GC)
+cancelOnTDST = input.bool(false, "Cancel countdown on a TDST break", group = GC,
+                          tooltip = "A buy countdown is cancelled by a close above TDST resistance, a sell countdown by a close below TDST support.")
+recycle      = input.bool(true, "Recycle countdown on a new same-direction setup", group = GC)
+
+showTDST     = input.bool(true, "Show TDST support / resistance", group = GT)
+tdstStyleIn  = input.string("Dashed", "Line style", options = ["Solid", "Dashed", "Dotted"], group = GT)
+tdstWidth    = input.int(1, "Line width", minval = 1, maxval = 4, group = GT)
+
+bullCol      = input.color(#26a69a, "Buy side colour", group = GA)
+bearCol      = input.color(#ef5350, "Sell side colour", group = GA)
+offsetMult   = input.float(0.4, "Label offset (ATR multiple)", minval = 0, step = 0.05, group = GA)
+
+tdstStyle = tdstStyleIn == "Solid" ? line.style_solid : tdstStyleIn == "Dashed" ? line.style_dashed : line.style_dotted
+
+// ---------------------------------------------------------------- utilities --
+// DeMark's true high / true low also take the previous close into account.
+prevClose = nz(close[1], close)
+trueHigh  = math.max(high, prevClose)
+trueLow   = math.min(low, prevClose)
+
+hh9    = ta.highest(trueHigh, 9)
+ll9    = ta.lowest(trueLow, 9)
+atrOff = nz(ta.atr(14), high - low) * offsetMult
+
+setupBuyY  = low - atrOff
+setupSellY = high + atrOff
+cdBuyY     = low - atrOff * 2.2
+cdSellY    = high + atrOff * 2.2
+
+// ------------------------------------------------------------ TD Price Flip --
+ready    = bar_index >= 5
+buyCond  = ready and close < close[4]
+sellCond = ready and close > close[4]
+bearFlip = buyCond and close[1] > close[5]
+bullFlip = sellCond and close[1] < close[5]
+
+// ----------------------------------------------------------------- TD Setup --
+var int buySetup  = 0
+var int sellSetup = 0
+
+buySetup  := bearFlip ? 1 : buySetup > 0 and buySetup < 9 and buyCond ? buySetup + 1 : 0
+sellSetup := bullFlip ? 1 : sellSetup > 0 and sellSetup < 9 and sellCond ? sellSetup + 1 : 0
+
+buySetupDone  = buySetup == 9
+sellSetupDone = sellSetup == 9
+
+// --------------------------------------------------------------- perfection --
+var float buyPerfLevel  = na
+var int   buyPerfLeft   = 0
+var float sellPerfLevel = na
+var int   sellPerfLeft  = 0
+
+bool buyPerfected  = false
+bool sellPerfected = false
+
+if buySetupDone
+    buyPerfLevel := math.min(low[2], low[3])
+    if math.min(low, low[1]) <= buyPerfLevel
+        buyPerfected := true
+        buyPerfLeft  := 0
+    else
+        buyPerfLeft := perfWindow
+else if buyPerfLeft > 0
+    if low <= buyPerfLevel
+        buyPerfected := true
+        buyPerfLeft  := 0
+    else
+        buyPerfLeft := buyPerfLeft - 1
+
+if sellSetupDone
+    sellPerfLevel := math.max(high[2], high[3])
+    if math.max(high, high[1]) >= sellPerfLevel
+        sellPerfected := true
+        sellPerfLeft  := 0
+    else
+        sellPerfLeft := perfWindow
+else if sellPerfLeft > 0
+    if high >= sellPerfLevel
+        sellPerfected := true
+        sellPerfLeft  := 0
+    else
+        sellPerfLeft := sellPerfLeft - 1
+
+// ------------------------------------------------------------- TDST levels ---
+var float tdstRes   = na
+var float tdstSup   = na
+var bool  tdstResOn = false
+var bool  tdstSupOn = false
+var line  tdstResLn = na
+var line  tdstSupLn = na
+
+if buySetupDone
+    tdstRes   := hh9
+    tdstResOn := true
+    if showTDST
+        tdstResLn := line.new(bar_index - 8, tdstRes, bar_index, tdstRes, color = bearCol, style = tdstStyle, width = tdstWidth)
+
+if sellSetupDone
+    tdstSup   := ll9
+    tdstSupOn := true
+    if showTDST
+        tdstSupLn := line.new(bar_index - 8, tdstSup, bar_index, tdstSup, color = bullCol, style = tdstStyle, width = tdstWidth)
+
+if tdstResOn and not na(tdstResLn)
+    line.set_x2(tdstResLn, bar_index)
+if tdstSupOn and not na(tdstSupLn)
+    line.set_x2(tdstSupLn, bar_index)
+
+resBreak = tdstResOn and close > tdstRes
+supBreak = tdstSupOn and close < tdstSup
+
+if resBreak
+    tdstResOn := false
+if supBreak
+    tdstSupOn := false
+
+// ------------------------------------------------------------- TD Countdown --
+var int   buyCD    = 0
+var int   sellCD   = 0
+var bool  buyCDOn  = false
+var bool  sellCDOn = false
+var float buyCD8   = na
+var float sellCD8  = na
+
+int  buyCDPrint  = 0
+int  sellCDPrint = 0
+bool buyCD13     = false
+bool sellCD13    = false
+bool buyCDDefer  = false
+bool sellCDDefer = false
+
+// An opposite setup cancels a running countdown.
+if sellSetupDone
+    buyCDOn := false
+    buyCD   := 0
+    buyCD8  := na
+if buySetupDone
+    sellCDOn := false
+    sellCD   := 0
+    sellCD8  := na
+
+// A completed setup arms - or recycles - the countdown in the same direction.
+if buySetupDone and (not buyCDOn or recycle)
+    buyCDOn := true
+    buyCD   := 0
+    buyCD8  := na
+if sellSetupDone and (not sellCDOn or recycle)
+    sellCDOn := true
+    sellCD   := 0
+    sellCD8  := na
+
+if cancelOnTDST and resBreak
+    buyCDOn := false
+    buyCD   := 0
+    buyCD8  := na
+if cancelOnTDST and supBreak
+    sellCDOn := false
+    sellCD   := 0
+    sellCD8  := na
+
+cdReady    = bar_index >= 2
+cdBuyCond  = cdReady and (aggressiveCD ? low <= low[2] : close <= low[2])
+cdSellCond = cdReady and (aggressiveCD ? high >= high[2] : close >= high[2])
+
+if buyCDOn and cdBuyCond
+    if buyCD == 12 and useQualifier and not na(buyCD8) and low > buyCD8
+        buyCDDefer := true
+    else
+        buyCD := buyCD + 1
+        buyCDPrint := buyCD
+        if buyCD == 8
+            buyCD8 := close
+        if buyCD == 13
+            buyCD13 := true
+            buyCDOn := false
+            buyCD   := 0
+            buyCD8  := na
+
+if sellCDOn and cdSellCond
+    if sellCD == 12 and useQualifier and not na(sellCD8) and high < sellCD8
+        sellCDDefer := true
+    else
+        sellCD := sellCD + 1
+        sellCDPrint := sellCD
+        if sellCD == 8
+            sellCD8 := close
+        if sellCD == 13
+            sellCD13 := true
+            sellCDOn := false
+            sellCD   := 0
+            sellCD8  := na
+
+// ------------------------------------------------------------------ plotting --
+if showSetup and buySetup >= minCount
+    label.new(bar_index, setupBuyY, str.tostring(buySetup), style = label.style_none, textcolor = buySetupDone ? bullCol : color.new(bullCol, 30), size = size.tiny)
+
+if showSetup and sellSetup >= minCount
+    label.new(bar_index, setupSellY, str.tostring(sellSetup), style = label.style_none, textcolor = sellSetupDone ? bearCol : color.new(bearCol, 30), size = size.tiny)
+
+// 13 itself is drawn by the plotshape below, so it is skipped here.
+if showCD and buyCDPrint > 0 and not buyCD13
+    label.new(bar_index, cdBuyY, str.tostring(buyCDPrint), style = label.style_none, textcolor = color.new(bullCol, 30), size = size.tiny)
+
+if showCD and sellCDPrint > 0 and not sellCD13
+    label.new(bar_index, cdSellY, str.tostring(sellCDPrint), style = label.style_none, textcolor = color.new(bearCol, 30), size = size.tiny)
+
+if showCD and buyCDDefer
+    label.new(bar_index, cdBuyY, "+", style = label.style_none, textcolor = color.new(bullCol, 30), size = size.tiny)
+
+if showCD and sellCDDefer
+    label.new(bar_index, cdSellY, "+", style = label.style_none, textcolor = color.new(bearCol, 30), size = size.tiny)
+
+plotshape(showSetup and buySetupDone, "Buy setup 9", shape.triangleup, location.belowbar, bullCol, size = size.tiny)
+plotshape(showSetup and sellSetupDone, "Sell setup 9", shape.triangledown, location.abovebar, bearCol, size = size.tiny)
+plotshape(showPerf and buyPerfected, "Buy setup perfected", shape.diamond, location.belowbar, bullCol, size = size.tiny)
+plotshape(showPerf and sellPerfected, "Sell setup perfected", shape.diamond, location.abovebar, bearCol, size = size.tiny)
+plotshape(showCD and buyCD13, "Buy countdown 13", shape.labelup, location.belowbar, bullCol, text = "13", textcolor = color.white, size = size.tiny)
+plotshape(showCD and sellCD13, "Sell countdown 13", shape.labeldown, location.abovebar, bearCol, text = "13", textcolor = color.white, size = size.tiny)
+
+// ------------------------------------------------------------------- alerts --
+alertcondition(buySetupDone, "TD buy setup 9", "TD buy setup completed on {{ticker}} {{interval}}")
+alertcondition(sellSetupDone, "TD sell setup 9", "TD sell setup completed on {{ticker}} {{interval}}")
+alertcondition(buyPerfected, "TD buy setup perfected", "TD buy setup perfected on {{ticker}} {{interval}}")
+alertcondition(sellPerfected, "TD sell setup perfected", "TD sell setup perfected on {{ticker}} {{interval}}")
+alertcondition(buyCD13, "TD buy countdown 13", "TD buy countdown 13 on {{ticker}} {{interval}}")
+alertcondition(sellCD13, "TD sell countdown 13", "TD sell countdown 13 on {{ticker}} {{interval}}")
+alertcondition(resBreak, "TDST resistance broken", "Close above TDST resistance on {{ticker}} {{interval}}")
+alertcondition(supBreak, "TDST support broken", "Close below TDST support on {{ticker}} {{interval}}")

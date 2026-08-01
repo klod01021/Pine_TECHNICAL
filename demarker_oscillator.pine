@@ -1,0 +1,68 @@
+//@version=6
+// =============================================================================
+//  DeMarker (DeM) - Tom DeMark's exhaustion oscillator
+//
+//  DeMax = high > high[1] ? high - high[1] : 0
+//  DeMin = low  < low[1]  ? low[1] - low   : 0
+//  DeM   = MA(DeMax, n) / (MA(DeMax, n) + MA(DeMin, n))
+//
+//  The result oscillates between 0 and 1. Readings above the overbought level
+//  point at a stretched advance, readings below the oversold level at a
+//  stretched decline. Signals are counter-trend, so they work best when they
+//  line up with a completed TD Setup or an established support / resistance.
+// =============================================================================
+
+indicator("DeMarker (DeM)", "DeM", overlay = false, precision = 4)
+
+length   = input.int(14, "Length", minval = 1)
+maTypeIn = input.string("SMA", "Averaging", options = ["SMA", "EMA", "RMA", "WMA"])
+obLevel  = input.float(0.7, "Overbought", minval = 0.5, maxval = 1.0, step = 0.05)
+osLevel  = input.float(0.3, "Oversold", minval = 0.0, maxval = 0.5, step = 0.05)
+sigLen   = input.int(0, "Signal smoothing (0 = off)", minval = 0, maxval = 50)
+
+bullCol  = input.color(#26a69a, "Bullish colour", group = "Appearance")
+bearCol  = input.color(#ef5350, "Bearish colour", group = "Appearance")
+showFill = input.bool(true, "Shade overbought / oversold", group = "Appearance")
+
+// Every average is evaluated on every bar so their histories stay valid.
+f_ma(src, len, t) =>
+    s = ta.sma(src, len)
+    e = ta.ema(src, len)
+    r = ta.rma(src, len)
+    w = ta.wma(src, len)
+    t == "EMA" ? e : t == "RMA" ? r : t == "WMA" ? w : s
+
+deMax = high > nz(high[1], high) ? high - high[1] : 0.0
+deMin = low < nz(low[1], low) ? low[1] - low : 0.0
+
+maMax = f_ma(deMax, length, maTypeIn)
+maMin = f_ma(deMin, length, maTypeIn)
+den   = maMax + maMin
+
+dem       = den == 0 ? 0.5 : maMax / den
+demSmooth = ta.sma(dem, math.max(sigLen, 1))
+signal    = sigLen > 0 ? demSmooth : na
+
+demCol = dem >= obLevel ? bearCol : dem <= osLevel ? bullCol : color.new(color.gray, 0)
+
+plot(dem, "DeMarker", color = demCol, linewidth = 2)
+plot(signal, "Signal", color = color.new(color.orange, 0))
+
+obLine = hline(obLevel, "Overbought", color = color.new(bearCol, 40), linestyle = hline.style_dashed)
+hline(0.5, "Midline", color = color.new(color.gray, 60), linestyle = hline.style_dotted)
+osLine = hline(osLevel, "Oversold", color = color.new(bullCol, 40), linestyle = hline.style_dashed)
+
+fill(obLine, osLine, color = color.new(color.gray, 94), title = "Neutral band")
+
+bgcolor(showFill and dem >= obLevel ? color.new(bearCol, 88) : showFill and dem <= osLevel ? color.new(bullCol, 88) : na, title = "Exhaustion zones")
+
+crossDown = ta.crossunder(dem, obLevel)
+crossUp   = ta.crossover(dem, osLevel)
+
+plotshape(crossDown, "Leaving overbought", shape.triangledown, location.top, bearCol, size = size.tiny)
+plotshape(crossUp, "Leaving oversold", shape.triangleup, location.bottom, bullCol, size = size.tiny)
+
+alertcondition(ta.crossover(dem, obLevel), "DeM overbought", "DeMarker crossed above the overbought level on {{ticker}} {{interval}}")
+alertcondition(ta.crossunder(dem, osLevel), "DeM oversold", "DeMarker crossed below the oversold level on {{ticker}} {{interval}}")
+alertcondition(crossDown, "DeM leaving overbought", "DeMarker dropped back below the overbought level on {{ticker}} {{interval}}")
+alertcondition(crossUp, "DeM leaving oversold", "DeMarker climbed back above the oversold level on {{ticker}} {{interval}}")
