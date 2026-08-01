@@ -281,6 +281,55 @@ def _():
     assert c.phase == "corrective", c.phase
 
 
+@case("a B wave many times its own A is not a correction")
+def _():
+    # the failure this guards against: a small impulse, a small wave A, and
+    # then a rally many times larger than either, lettered as wave B
+    pts = [115, 100, 140, 120, 180, 165, 200, 160, 580, 430, 460]
+    w, _ = pivots_of(pts, min_move=10.0)
+    a_size = w[5].price - w[6].price
+    b_size = w[7].price - w[6].price
+    assert b_size / a_size > 5, (a_size, b_size)
+    c = analyze(w, True, True, 25, 0)
+    for t in c.tags:
+        if t.corr:
+            assert w[t.pi].price < w[5].price, f"corrective {t.txt} above the impulse top"
+    assert labels(c)[-2:] == ["1", "2"], labels(c)
+    assert "New impulse up" in c.title, c.title
+
+
+@case("the whole correction stays inside the range of its impulse")
+def _():
+    import random
+
+    random.seed(23)
+    checked = 0
+    for _ in range(200):
+        bars = random.randint(80, 300)
+        price = 100.0
+        highs, lows = [], []
+        for _ in range(bars):
+            price *= 1 + random.gauss(0, 0.014)
+            rng = abs(random.gauss(0, 0.006)) * price
+            highs.append(price + rng)
+            lows.append(price - rng)
+        w, hp = run_zigzag(highs, lows, random.choice([4, 6, 9]), 0.0, True)
+        c = analyze(w, True, True, 25, 0, has_prov=hp)
+        corr = [t for t in c.tags if t.corr]
+        if not corr or not c.tags or c.tags[0].corr:
+            continue
+        start = c.tags[0].pi - 1                     # origin of the labelled impulse
+        top = corr[0].pi - 1                         # where the correction begins
+        d = leg_dir(w, top)
+        span = abs(w[top].price - w[start].price)
+        for t in corr:
+            # never past the impulse origin, never meaningfully past its extreme
+            assert d * w[t.pi].price <= d * w[start].price + 1e-9
+            assert d * w[t.pi].price > d * w[top].price - 0.08 * span
+        checked += 1
+    assert checked > 20, checked
+
+
 @case("a correction may not finish above the top it is correcting")
 def _():
     # after the 5-wave top at 165, price makes a HIGHER high at 175: whatever

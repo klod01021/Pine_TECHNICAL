@@ -61,6 +61,8 @@ Full input-by-input reference: [`docs/elliott_wave_auto_counter_v2.md`](docs/ell
 
 **Two sets of labels, or a panel with text written over itself.** You have two copies of the indicator on the chart. Right click the chart, choose **Objects tree**, and remove the older one; or open each indicator's title on the chart and delete the duplicate.
 
+**A correction looks bigger than the impulse it corrects.** It should not be possible: the whole correction is held inside the range of its impulse, wave B may pass the top by at most 5% of wave A, and a move retracing more than 100% is counted as a new impulse instead. If you are seeing it, you are almost certainly looking at an older copy of the script still on the chart - check for duplicates as above, then re-paste.
+
 **Almost nothing is labelled.** Check **Swings held** in the panel. Below about ten swings there is not enough structure to count, so lower the depth or the noise filter until the panel shows twenty or more.
 
 ## Setting up alerts

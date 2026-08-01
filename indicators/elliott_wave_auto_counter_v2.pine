@@ -1073,7 +1073,15 @@ if barstate.islast and showTbl
     [tp1, tp2, tp3, tps] = timeTargets(wDisp, cDisp)
     string dueS = "-"
     if not na(tp2)
-        dueS := tp2 > bar_index ? "in ~" + str.tostring(tp2 - bar_index) + " bars (" + str.tostring(math.max(tp1 - bar_index, 0)) + "-" + str.tostring(math.max(tp3 - bar_index, 0)) + ")" : "due now, " + str.tostring(bar_index - tp2) + " bars over"
+        int over = bar_index - tp2
+        int projected = tp2 - tps
+        if over <= 0
+            dueS := "in ~" + str.tostring(-over) + " bars (" + str.tostring(math.max(tp1 - bar_index, 0)) + "-" + str.tostring(math.max(tp3 - bar_index, 0)) + ")"
+        else if projected > 0 and over > projected * 2
+            // so far past the projection that quoting a number would be noise
+            dueS := "projection lapsed, the count is doubtful"
+        else
+            dueS := "due now, " + str.tostring(over) + " bars over"
     table.cell(tb, 0, 6, "Expected end", text_size = size.small, text_halign = text.align_left)
     table.cell(tb, 1, 6, dueS, text_size = size.small, text_halign = text.align_left)
     table.cell(tb, 0, 7, "Lower degree", text_size = size.small, text_halign = text.align_left)
