@@ -334,6 +334,31 @@ def _():
     assert labels(c)[:8] == ["1", "2", "3", "4", "5", "A", "B", "C"], labels(c)
 
 
+@case("the count describes the present, not stranded history")
+def _():
+    # a clean impulse long ago, then a long rally the old count cannot explain.
+    # Labelling the ancient structure and leaving the whole recent half of the
+    # chart bare is useless: the count has to reach the current price action.
+    pts = [115, 100, 150, 125, 200, 175, 230] + [
+        200, 260, 235, 300, 270, 340, 310, 390, 360, 450, 420, 520, 490, 600, 560, 700, 660, 800
+    ]
+    w, _ = pivots_of(pts, min_move=15.0)
+    c = analyze(w, True, True, 25, 0)
+    assert c.tags, "nothing labelled at all"
+    bare = len(w) - 1 - max(t.pi for t in c.tags)
+    assert bare <= 8, f"{bare} of the newest swings left unlabelled"
+
+
+@case("a completed new impulse is not reported as its own wave 5 in progress")
+def _():
+    pts = [115, 100, 120, 110, 150, 135, 165, 140, 155, 128, 175, 160, 200, 185, 215, 205]
+    w, _ = pivots_of(pts)
+    c = analyze(w, True, True, 25, 0)
+    if c.phase == "impulse" and c.legs == 5:
+        assert "in progress" not in c.title, c.title
+        assert "complete" in c.title, c.title
+
+
 @case("nothing is forced when the structure is unreadable")
 def _():
     w, _ = pivots_of([100, 101, 100, 101, 100])
@@ -405,6 +430,9 @@ def _():
             assert all(0 < i < len(w) for i in idx), (idx, len(w))
             assert idx == sorted(idx) and len(set(idx)) == len(idx), idx
             assert 0.0 <= c.conf <= 100.0, c.conf
+            # a count has to describe the present, not stranded history
+            if idx:
+                assert len(w) - 1 - max(idx) <= 8, (len(w), max(idx))
             # any accepted overlap must be a genuine wedge
             if c.diag and c.legs == 5 and c.anchor >= 0:
                 d = leg_dir(w, c.anchor)

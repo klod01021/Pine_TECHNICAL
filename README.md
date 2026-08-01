@@ -24,12 +24,17 @@ The script compiles to a standard indicator, so it works on the free plan and on
 
 Depth is how many bars on each side of a high or low must fail to exceed it before it counts as a swing. Everything else follows from it.
 
-| You are trading | Chart | Start with |
-| --- | --- | --- |
-| Scalps | 1m - 15m | depth 8-12 |
-| Swings | 1H - 4H | depth 15-25 |
-| Positions | Daily | depth 20-30 |
-| Macro structure | Weekly | depth 40+ |
+Depth is counted in **bars, not time**, so it has to suit how many bars your chart is showing. A rough guide is 2-5% of the bars on screen; the numbers below assume a few hundred bars of history.
+
+| Chart | Start with |
+| --- | --- |
+| 1m - 15m | depth 8-12 |
+| 1H - 4H | depth 15-25 |
+| Daily | depth 20-30 |
+| Weekly | depth 10-15 |
+| Monthly | depth 5-8 |
+
+The higher timeframes want *smaller* numbers, which surprises people. A monthly chart of 30 years is only about 360 bars, so depth 20 asks for 20 months of quiet either side of every swing and finds almost nothing in a long trend. If your monthly chart shows only a handful of waves, that is the reason.
 
 If you see too many small waves, raise the depth or raise the **Minimum swing = ATR x** filter. If whole legs of the move are being ignored, lower them.
 
@@ -49,6 +54,14 @@ If you see too many small waves, raise the depth or raise the **Minimum swing = 
 Full input-by-input reference: [`docs/elliott_wave_auto_counter_v2.md`](docs/elliott_wave_auto_counter_v2.md).
 
 ---
+
+## When the chart looks wrong
+
+**Labels sit in old history with the recent rally bare.** The count only ever describes the present: a structure with more than eight swings after it is not offered as a count at all. If labels still cluster in one region and the rest of the chart is empty, the swing detection is finding almost no pivots in the quiet part - lower **Pivot depth**, and on a monthly or weekly chart lower it a lot (see the table above).
+
+**Two sets of labels, or a panel with text written over itself.** You have two copies of the indicator on the chart. Right click the chart, choose **Objects tree**, and remove the older one; or open each indicator's title on the chart and delete the duplicate.
+
+**Almost nothing is labelled.** Check **Swings held** in the panel. Below about ten swings there is not enough structure to count, so lower the depth or the noise filter until the panel shows twenty or more.
 
 ## Setting up alerts
 

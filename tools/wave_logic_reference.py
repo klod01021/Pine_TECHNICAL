@@ -17,6 +17,12 @@ from dataclasses import dataclass, field
 
 MAX_PIVOTS = 60
 
+# Most swings that can follow a complete impulse and still be accounted for:
+# three for the correction plus five for the impulse building on it. An impulse
+# with more than this after it is history, not the current structure, so it is
+# not offered as a count at all.
+MAX_TAIL = 8
+
 
 @dataclass
 class Pivot:
@@ -314,6 +320,8 @@ def analyze(w, allow_diag, allow_trunc, look, min_fit, sty="1 2 3 4 5 / A B C", 
         s_from = max(0, n - 1 - look)
         if n - 6 >= s_from:
             for s in range(s_from, n - 5):
+                if i_last - (s + 5) > MAX_TAIL:
+                    continue          # too much unexplained action after it
                 ok_a, sc_a, dg_a = impulse_fit(w, s, 5, allow_diag, allow_trunc)
                 # Rank on quality, with a small bonus for being the more recent
                 # structure, so a clean older count is not displaced by a poor

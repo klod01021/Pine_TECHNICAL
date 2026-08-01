@@ -26,7 +26,7 @@ Source: [`indicators/elliott_wave_auto_counter_v2.pine`](../indicators/elliott_w
 
    Only the part of the correction that validates is labelled. The script tries A-B-C, then A-B, then A, and for each of those it also checks whether a new impulse has already begun on the far side of it. Of the splits that survive, the one accounting for the most swings wins, with ties going to the longest correction since three legs is the normal shape. So a trend that resumes after a single sharp pullback is counted as `A` followed by a fresh 1-2-3, instead of being left blank or forced into letters. A lone leg is not called a new impulse unless the correction before it is a complete three. Whatever is still unexplained stays bare and the panel says so. Nothing is labelled W-X-Y, because a complex correction cannot be identified reliably from swing geometry alone and a wrong label is worse than none.
 
-5. **Choosing the count.** The scanner ranks every valid complete impulse by `fib fit - 0.015 x (swings since it ended)`. The recency term is small on purpose: a clean older count is not displaced by a poor newer one that merely ends further to the right. Whatever follows the winning impulse is labelled as a correction, and if that correction is complete, the impulse building on top of it is labelled too. With no complete impulse anywhere, the script falls back to the longest partial impulse ending on the newest swing, then to a plain A-B-C, and finally shows "No valid count" rather than forcing labels onto noise.
+5. **Choosing the count.** A count is a claim about the present, so any impulse with more than eight swings after it - more than a three legged correction plus a five wave impulse could account for - is discarded rather than labelled, leaving the recent action stranded and unexplained. Among what remains the scanner ranks every valid complete impulse by `fib fit - 0.015 x (swings since it ended)`. The recency term is small on purpose: a clean older count is not displaced by a poor newer one that merely ends further to the right. Whatever follows the winning impulse is labelled as a correction, and if that correction is complete, the impulse building on top of it is labelled too. With no complete impulse anywhere, the script falls back to the longest partial impulse ending on the newest swing, then to a plain A-B-C, and finally shows "No valid count" rather than forcing labels onto noise.
 
 6. **Two degrees.** The whole process runs twice: once at your pivot depth, and once at `depth x lower degree size` for the sub-waves, drawn smaller and faded.
 
@@ -130,7 +130,9 @@ A swing cannot be known until `depth` bars have passed, so the most recent label
 
 ### v2
 
-Everything in this release came out of counts that looked wrong on a chart. The through-line is that v1 was too willing to letter a move as a correction.
+Everything in this release came out of counts that looked wrong on a chart.
+
+- **A count must reach the present.** An impulse with more swings after it than a correction and a new impulse could explain is no longer offered, so labels cannot strand themselves in old history while the recent half of the chart goes bare. The through-line is that v1 was too willing to letter a move as a correction.
 
 - **A correction can no longer be labelled through the extreme it corrects.** A-B-C labels used to be drawn before the corrective test ran, and survived its rejection, so a rally past the wave 5 top could be lettered with wave B above that top.
 - **A correction must hold the origin of the impulse it corrects.** Past 100% retracement it is not correcting anything, so it is counted as an impulse in the other direction instead.

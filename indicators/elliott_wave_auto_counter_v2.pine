@@ -65,6 +65,11 @@ color  cInv     = input.color(#d50000, "Invalidation colour", group = G_TGT)
 bool   alertsOn = input.bool(true, "Fire alert() on every count change", group = G_TGT)
 
 int MAX_PIVOTS = 60
+// Most swings that can follow a complete impulse and still be accounted for:
+// three for the correction plus five for the impulse building on it. An
+// impulse with more than this after it is history, not the current structure,
+// so it is not offered as a count at all.
+int MAX_TAIL = 8
 
 // ──────────────────────────────────  types  ──────────────────────────────────
 type Pivot
@@ -431,11 +436,13 @@ analyze(array<Pivot> w, array<Pivot> subPv, bool allowDiag, bool allowTrunc, boo
         if n - 6 >= sFrom
             for s = sFrom to n - 6
                 [okA, scA, dgA] = impulseFit(w, s, 5, allowDiag, allowTrunc)
+                // too much unexplained action after it to be the current count
+                bool fresh = iL - (s + 5) <= MAX_TAIL
                 // Rank on quality with a small bonus for being the more recent
                 // structure, so a clean older count is not displaced by a poor
                 // newer one that merely ends further to the right.
                 float rank = scA - 0.015 * (iL - (s + 5))
-                if okA and scA * 100 >= minFit and rank > bestRk
+                if okA and fresh and scA * 100 >= minFit and rank > bestRk
                     best   := s
                     bestSc := scA
                     bestDg := dgA
@@ -549,7 +556,7 @@ analyze(array<Pivot> w, array<Pivot> subPv, bool allowDiag, bool allowTrunc, boo
                     c.anchor := s2
                     c.conf   := sci * 100
                     c.diag   := dgi
-                    c.title  := "New impulse " + (dir2 == 1 ? "up" : "down") + ", wave " + waveTxt(math.min(lg + 1, 5), false, sty) + " in progress"
+                    c.title  := "New impulse " + (dir2 == 1 ? "up" : "down") + (lg >= 5 ? " complete" : ", wave " + waveTxt(lg + 1, false, sty) + " in progress")
                 else if rem > cl
                     c.title := c.title + ", structure past it unresolved"
     else
