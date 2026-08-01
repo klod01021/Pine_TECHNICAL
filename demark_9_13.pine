@@ -1,0 +1,552 @@
+//@version=6
+// =============================================================================
+//  DeMark 9-13  -  Sequential + Combo, TDST, Risk Levels and Zones
+//
+//  An independent, open implementation of the studies Tom DeMark published in
+//  "DeMark Indicators" (Perl, Bloomberg Press) and "The New Science of
+//  Technical Analysis". It is not affiliated with, endorsed by or derived from
+//  DeMARK Analytics / Market Studies LLC, whose licensed DeMARK 9-13 product is
+//  closed source. Trademarks belong to their owners.
+//
+//  What this script adds over the plain TD Sequential script in this repo:
+//    - Combo countdown (Version I and Version II) as an alternative to the
+//      Sequential countdown, including the optional termination count
+//    - Setups that extend past bar 9, as DeMark describes, up to 18 and beyond
+//    - The book's countdown cancellation filters (opposite setup, true low
+//      above TDST resistance) and recycle qualifiers I and II with the 1.618
+//      true range test, plus the R marker on an 18 bar setup
+//    - TD Risk Levels and risk zones for both setup and countdown signals
+//    - Qualified 9-13-9 counts
+// =============================================================================
+
+indicator("DeMark 9-13 (Sequential + Combo)", "DM 9-13", overlay = true,
+          max_labels_count = 500, max_lines_count = 500, max_boxes_count = 100, max_bars_back = 100)
+
+// ------------------------------------------------------------------- inputs --
+GM = "Method"
+GS = "TD Setup"
+GC = "TD Countdown"
+GR = "Risk Levels"
+GT = "TDST"
+GA = "Appearance"
+
+method     = input.string("Sequential", "Countdown method", options = ["Sequential", "Combo V1", "Combo V2"], group = GM,
+                          tooltip = "Sequential counts closes beyond the low/high two bars earlier. Combo adds DeMark's stricter conditions and starts counting from bar 1 of the setup. Version II relaxes counts 11 to 13 to successively lower/higher closes.")
+aggressive = input.bool(false, "Aggressive countdown", group = GM,
+                         tooltip = "Compare the low/high of the bar with the low/high two bars earlier instead of the close.")
+
+showSetup    = input.bool(true, "Show setup counts", group = GS)
+minCount     = input.int(1, "Start plotting counts at", minval = 1, maxval = 9, group = GS)
+showExtended = input.bool(true, "Show setup counts past 9", group = GS,
+                          tooltip = "DeMark's setup does not stop at nine, it runs until the sequence breaks. The script always tracks the extension because the recycle rules depend on it; this only controls whether counts above nine are drawn.")
+showPerf    = input.bool(true, "Mark perfected setups", group = GS)
+perfWindow  = input.int(8, "Bars allowed for deferred perfection", minval = 0, maxval = 50, group = GS)
+
+showCD       = input.bool(true, "Show countdown counts", group = GC)
+useQualifier = input.bool(true, "Apply the bar 13 qualifier (Sequential)", group = GC)
+termination  = input.bool(false, "Termination count (Combo)", group = GC,
+                          tooltip = "Lets the final Combo count be satisfied by either the close or the open of the bar.")
+cancelOpp    = input.bool(true, "Cancel on an opposite setup", group = GC)
+cancelTDST   = input.bool(true, "Cancel on a true low/high beyond TDST", group = GC,
+                          tooltip = "A buy countdown is erased when a bar posts a true low above TDST resistance, a sell countdown when a bar posts a true high below TDST support.")
+recycleMode  = input.string("DeMark qualifiers", "Recycle rule", options = ["DeMark qualifiers", "Always", "Never"], group = GC,
+                             tooltip = "Qualifier I recycles when the new setup's true range is at least as large as the previous one but smaller than 1.618 times it. Qualifier II keeps the countdown when the new setup sits inside the previous setup's range.")
+
+showSetupRisk = input.bool(false, "Risk level on setup 9", group = GR)
+showCDRisk    = input.bool(true, "Risk level on countdown 13", group = GR)
+showZone      = input.bool(true, "Shade the risk zone", group = GR,
+                           tooltip = "Shades the area between the pattern extreme and the risk level.")
+violationMode = input.string("Intrabar", "Risk level violated by", options = ["Intrabar", "Close"], group = GR)
+
+showTDST    = input.bool(true, "Show TDST support / resistance", group = GT)
+tdstStyleIn = input.string("Dashed", "Line style", options = ["Solid", "Dashed", "Dotted"], group = GT)
+tdstWidth   = input.int(1, "Line width", minval = 1, maxval = 4, group = GT)
+
+bullCol    = input.color(#26a69a, "Buy side colour", group = GA)
+bearCol    = input.color(#ef5350, "Sell side colour", group = GA)
+offsetMult = input.float(0.4, "Label offset (ATR multiple)", minval = 0, step = 0.05, group = GA)
+
+isCombo   = method != "Sequential"
+comboV2   = method == "Combo V2"
+tdstStyle = tdstStyleIn == "Solid" ? line.style_solid : tdstStyleIn == "Dashed" ? line.style_dashed : line.style_dotted
+
+// ---------------------------------------------------------------- utilities --
+pc = nz(close[1], close)
+th = math.max(high, pc)
+tl = math.min(low, pc)
+tr = th - tl
+
+atrOff = nz(ta.atr(14), high - low) * offsetMult
+setupBuyY  = low - atrOff
+setupSellY = high + atrOff
+cdBuyY     = low - atrOff * 2.2
+cdSellY    = high + atrOff * 2.2
+
+// ------------------------------------------------------------ TD Price Flip --
+ready    = bar_index >= 5
+buyCond  = ready and close < close[4]
+sellCond = ready and close > close[4]
+bearFlip = buyCond and close[1] > close[5]
+bullFlip = sellCond and close[1] < close[5]
+
+// ----------------------------------------------------------------- TD Setup --
+// The count keeps running past nine until the sequence is interrupted.
+var int buySetup  = 0
+var int sellSetup = 0
+
+buySetup  := bearFlip ? 1 : buySetup > 0 and buyCond ? buySetup + 1 : 0
+sellSetup := bullFlip ? 1 : sellSetup > 0 and sellCond ? sellSetup + 1 : 0
+
+var float buySetupHi   = na
+var float buySetupLo   = na
+var float buySetupLoTR = na
+var float buySetupCHi  = na
+var float buySetupCLo  = na
+var int   buySetupStart = na
+
+var float sellSetupHi   = na
+var float sellSetupLo   = na
+var float sellSetupHiTR = na
+var float sellSetupCHi  = na
+var float sellSetupCLo  = na
+var int   sellSetupStart = na
+
+if buySetup == 1
+    buySetupHi    := th
+    buySetupLo    := tl
+    buySetupLoTR  := tr
+    buySetupCHi   := close
+    buySetupCLo   := close
+    buySetupStart := bar_index
+else if buySetup > 1
+    buySetupHi  := math.max(buySetupHi, th)
+    buySetupCHi := math.max(buySetupCHi, close)
+    buySetupCLo := math.min(buySetupCLo, close)
+    if tl < buySetupLo
+        buySetupLo   := tl
+        buySetupLoTR := tr
+
+if sellSetup == 1
+    sellSetupHi    := th
+    sellSetupLo    := tl
+    sellSetupHiTR  := tr
+    sellSetupCHi   := close
+    sellSetupCLo   := close
+    sellSetupStart := bar_index
+else if sellSetup > 1
+    sellSetupLo := math.min(sellSetupLo, tl)
+    sellSetupCHi := math.max(sellSetupCHi, close)
+    sellSetupCLo := math.min(sellSetupCLo, close)
+    if th > sellSetupHi
+        sellSetupHi   := th
+        sellSetupHiTR := tr
+
+buy9   = buySetup == 9
+sell9  = sellSetup == 9
+buy18  = buySetup == 18
+sell18 = sellSetup == 18
+buySetupDone  = buy9 or buy18
+sellSetupDone = sell9 or sell18
+
+// --------------------------------------------------------------- perfection --
+var float buyPerfLevel  = na
+var int   buyPerfLeft   = 0
+var float sellPerfLevel = na
+var int   sellPerfLeft  = 0
+
+bool buyPerfected  = false
+bool sellPerfected = false
+
+if buy9
+    buyPerfLevel := math.min(low[2], low[3])
+    if math.min(low, low[1]) <= buyPerfLevel
+        buyPerfected := true
+        buyPerfLeft  := 0
+    else
+        buyPerfLeft := perfWindow
+else if buyPerfLeft > 0
+    if low <= buyPerfLevel
+        buyPerfected := true
+        buyPerfLeft  := 0
+    else
+        buyPerfLeft := buyPerfLeft - 1
+
+if sell9
+    sellPerfLevel := math.max(high[2], high[3])
+    if math.max(high, high[1]) >= sellPerfLevel
+        sellPerfected := true
+        sellPerfLeft  := 0
+    else
+        sellPerfLeft := perfWindow
+else if sellPerfLeft > 0
+    if high >= sellPerfLevel
+        sellPerfected := true
+        sellPerfLeft  := 0
+    else
+        sellPerfLeft := sellPerfLeft - 1
+
+// ------------------------------------------- active setup, TDST, qualifiers --
+var float actBuyHi     = na   // TDST resistance, true high of the active buy setup
+var float actBuyLo     = na
+var float actBuyRange  = na
+var float actSellHi    = na
+var float actSellLo    = na   // TDST support
+var float actSellRange = na
+
+var bool tdstResLive = false   // the line is still being extended
+var bool tdstSupLive = false
+var line tdstResLn   = na
+var line tdstSupLn   = na
+
+// Recycle qualifiers, evaluated against the setup that was active until now.
+bool buyQualI   = false
+bool buyQualII  = false
+bool sellQualI  = false
+bool sellQualII = false
+
+if buy9 and not na(actBuyRange)
+    newRange  = buySetupHi - buySetupLo
+    buyQualI  := newRange >= actBuyRange and newRange < 1.618 * actBuyRange
+    buyQualII := buySetupCHi <= actBuyHi and buySetupCLo >= actBuyLo and buySetupHi <= actBuyHi and buySetupLo >= actBuyLo
+
+if sell9 and not na(actSellRange)
+    newRange   = sellSetupHi - sellSetupLo
+    sellQualI  := newRange >= actSellRange and newRange < 1.618 * actSellRange
+    sellQualII := sellSetupCHi <= actSellHi and sellSetupCLo >= actSellLo and sellSetupHi <= actSellHi and sellSetupLo >= actSellLo
+
+// A setup running at nine or beyond defines the active setup and its TDST level.
+// While the setup extends, the level and the line grow with it.
+if buySetup >= 9
+    actBuyHi    := buySetupHi
+    actBuyLo    := buySetupLo
+    actBuyRange := buySetupHi - buySetupLo
+    if buy9
+        tdstResLive := true
+        if showTDST
+            tdstResLn := line.new(bar_index - 8, actBuyHi, bar_index, actBuyHi, color = bearCol, style = tdstStyle, width = tdstWidth)
+    else if tdstResLive and not na(tdstResLn)
+        line.set_x1(tdstResLn, bar_index - (buySetup - 1))
+        line.set_y1(tdstResLn, actBuyHi)
+        line.set_y2(tdstResLn, actBuyHi)
+
+if sellSetup >= 9
+    actSellHi    := sellSetupHi
+    actSellLo    := sellSetupLo
+    actSellRange := sellSetupHi - sellSetupLo
+    if sell9
+        tdstSupLive := true
+        if showTDST
+            tdstSupLn := line.new(bar_index - 8, actSellLo, bar_index, actSellLo, color = bullCol, style = tdstStyle, width = tdstWidth)
+    else if tdstSupLive and not na(tdstSupLn)
+        line.set_x1(tdstSupLn, bar_index - (sellSetup - 1))
+        line.set_y1(tdstSupLn, actSellLo)
+        line.set_y2(tdstSupLn, actSellLo)
+
+if tdstResLive and not na(tdstResLn)
+    line.set_x2(tdstResLn, bar_index)
+if tdstSupLive and not na(tdstSupLn)
+    line.set_x2(tdstSupLn, bar_index)
+
+resBreak = tdstResLive and close > actBuyHi
+supBreak = tdstSupLive and close < actSellLo
+
+if resBreak
+    tdstResLive := false
+if supBreak
+    tdstSupLive := false
+
+// ------------------------------------------------------------- TD Countdown --
+var int   buyCD      = 0
+var int   sellCD     = 0
+var bool  buyCDOn    = false
+var bool  sellCDOn   = false
+var float buyCD8     = na    // close of buy countdown bar 8
+var float sellCD8    = na
+var float buyCDPrev  = na    // close of the previous buy countdown bar (Combo)
+var float sellCDPrev = na
+var float buyCDLo    = na    // lowest true low of the countdown phase
+var float buyCDLoTR  = na
+var float sellCDHi   = na    // highest true high of the countdown phase
+var float sellCDHiTR = na
+
+bool buyCD13     = false
+bool sellCD13    = false
+bool buyCDDefer  = false
+bool sellCDDefer = false
+bool buyRecycle  = false
+bool sellRecycle = false
+bool buySeeded   = false
+bool sellSeeded  = false
+
+// Cancellation: an opposite setup, or a true low/high beyond TDST.
+if cancelOpp and sellSetupDone and buyCDOn
+    buyCDOn := false
+    buyCD   := 0
+if cancelOpp and buySetupDone and sellCDOn
+    sellCDOn := false
+    sellCD   := 0
+if cancelTDST and buyCDOn and not na(actBuyHi) and tl > actBuyHi
+    buyCDOn := false
+    buyCD   := 0
+if cancelTDST and sellCDOn and not na(actSellLo) and th < actSellLo
+    sellCDOn := false
+    sellCD   := 0
+
+// Recycling. Qualifier II keeps the running countdown, qualifier I restarts it,
+// and a setup that stretches to eighteen bars always restarts it (the R mark).
+if buyCDOn and buySetupDone
+    buyRecycle := recycleMode == "Never" ? false : recycleMode == "Always" or buy18 ? true : buyQualI and not buyQualII
+if sellCDOn and sellSetupDone
+    sellRecycle := recycleMode == "Never" ? false : recycleMode == "Always" or sell18 ? true : sellQualI and not sellQualII
+
+armBuy  = buySetupDone and (not buyCDOn or buyRecycle)
+armSell = sellSetupDone and (not sellCDOn or sellRecycle)
+
+if armBuy
+    buyCDOn   := true
+    buyCD     := 0
+    buyCD8    := na
+    buyCDPrev := na
+    buyCDLo   := na
+    buyCDLoTR := na
+if armSell
+    sellCDOn   := true
+    sellCD     := 0
+    sellCD8    := na
+    sellCDPrev := na
+    sellCDHi   := na
+    sellCDHiTR := na
+
+// Combo starts counting at bar one of the setup, so the nine bars just gone by
+// are walked through as soon as the setup completes.
+if isCombo and armBuy
+    buySeeded := true
+    for k = 0 to 8
+        i   = 8 - k
+        c0  = close[i]
+        l0  = low[i]
+        pc0 = close[i + 1]
+        tl0 = math.min(l0, pc0)
+        th0 = math.max(high[i], pc0)
+        if na(buyCDLo) or tl0 < buyCDLo
+            buyCDLo   := tl0
+            buyCDLoTR := th0 - tl0
+        // Nine bars can only ever produce nine counts, so no 13 can appear here.
+        base = aggressive ? l0 <= low[i + 2] : c0 <= low[i + 2]
+        seq  = na(buyCDPrev) or c0 < buyCDPrev
+        if base and l0 < low[i + 1] and c0 < pc0 and seq
+            buyCD     := buyCD + 1
+            buyCDPrev := c0
+            if buyCD == 8
+                buyCD8 := c0
+            if showCD
+                label.new(bar_index - i, l0 - nz(atrOff[i], atrOff) * 2.2, str.tostring(buyCD), style = label.style_none, textcolor = color.new(bullCol, 30), size = size.tiny)
+
+if isCombo and armSell
+    sellSeeded := true
+    for k = 0 to 8
+        i   = 8 - k
+        c0  = close[i]
+        h0  = high[i]
+        pc0 = close[i + 1]
+        th0 = math.max(h0, pc0)
+        tl0 = math.min(low[i], pc0)
+        if na(sellCDHi) or th0 > sellCDHi
+            sellCDHi   := th0
+            sellCDHiTR := th0 - tl0
+        base = aggressive ? h0 >= high[i + 2] : c0 >= high[i + 2]
+        seq  = na(sellCDPrev) or c0 > sellCDPrev
+        if base and h0 > high[i + 1] and c0 > pc0 and seq
+            sellCD     := sellCD + 1
+            sellCDPrev := c0
+            if sellCD == 8
+                sellCD8 := c0
+            if showCD
+                label.new(bar_index - i, h0 + nz(atrOff[i], atrOff) * 2.2, str.tostring(sellCD), style = label.style_none, textcolor = color.new(bearCol, 30), size = size.tiny)
+
+// The extreme of the countdown phase counts every bar, numbered or not.
+if buyCDOn and not buySeeded
+    if na(buyCDLo) or tl < buyCDLo
+        buyCDLo   := tl
+        buyCDLoTR := tr
+if sellCDOn and not sellSeeded
+    if na(sellCDHi) or th > sellCDHi
+        sellCDHi   := th
+        sellCDHiTR := tr
+
+int buyCDPrint  = 0
+int sellCDPrint = 0
+
+if buyCDOn and not buySeeded and buyCD < 13
+    last  = buyCD == 12 and isCombo and termination
+    px    = last ? math.min(close, open) : close
+    base  = aggressive ? low <= low[2] : px <= low[2]
+    extra = low < low[1] and px < close[1]
+    seq   = na(buyCDPrev) or px < buyCDPrev
+    ok    = isCombo ? (comboV2 and buyCD >= 10 ? seq : base and extra and seq) : base
+    if ok
+        if not isCombo and buyCD == 12 and useQualifier and not na(buyCD8) and low > buyCD8
+            buyCDDefer := true
+        else
+            buyCD      := buyCD + 1
+            buyCDPrev  := close
+            buyCDPrint := buyCD
+            if buyCD == 8
+                buyCD8 := close
+            if buyCD == 13
+                buyCD13 := true
+
+if sellCDOn and not sellSeeded and sellCD < 13
+    last  = sellCD == 12 and isCombo and termination
+    px    = last ? math.max(close, open) : close
+    base  = aggressive ? high >= high[2] : px >= high[2]
+    extra = high > high[1] and px > close[1]
+    seq   = na(sellCDPrev) or px > sellCDPrev
+    ok    = isCombo ? (comboV2 and sellCD >= 10 ? seq : base and extra and seq) : base
+    if ok
+        if not isCombo and sellCD == 12 and useQualifier and not na(sellCD8) and high < sellCD8
+            sellCDDefer := true
+        else
+            sellCD      := sellCD + 1
+            sellCDPrev  := close
+            sellCDPrint := sellCD
+            if sellCD == 8
+                sellCD8 := close
+            if sellCD == 13
+                sellCD13 := true
+
+if buyCD13
+    buyCDOn := false
+if sellCD13
+    sellCDOn := false
+
+// --------------------------------------------------------------- 9-13-9 count --
+var int  buy13Bar    = na
+var int  sell13Bar   = na
+var bool buy913Armed = false
+var bool sell913Armed = false
+
+bool buy913  = false
+bool sell913 = false
+
+if buy913Armed and sellSetupDone
+    buy913Armed := false
+if sell913Armed and buySetupDone
+    sell913Armed := false
+
+if buy9 and buy913Armed and buySetupStart > buy13Bar
+    buy913 := true
+    buy913Armed := false
+if sell9 and sell913Armed and sellSetupStart > sell13Bar
+    sell913 := true
+    sell913Armed := false
+
+if buyCD13
+    buy13Bar    := bar_index
+    buy913Armed := true
+if sellCD13
+    sell13Bar    := bar_index
+    sell913Armed := true
+
+// ------------------------------------------------------------- risk levels ---
+var float buyRisk    = na
+var float sellRisk   = na
+var bool  buyRiskOn  = false
+var bool  sellRiskOn = false
+var line  buyRiskLn  = na
+var line  sellRiskLn = na
+var box   buyRiskBx  = na
+var box   sellRiskBx = na
+
+newBuyRisk  = (showCDRisk and buyCD13) or (showSetupRisk and buy9)
+newSellRisk = (showCDRisk and sellCD13) or (showSetupRisk and sell9)
+
+if newBuyRisk
+    useCD  = buyCD13 and not na(buyCDLo)
+    extLow = useCD ? buyCDLo : buySetupLo
+    extTR  = useCD ? buyCDLoTR : buySetupLoTR
+    buyRisk   := extLow - extTR
+    buyRiskOn := true
+    buyRiskLn := line.new(bar_index, buyRisk, bar_index + 1, buyRisk, color = bullCol, style = line.style_solid, width = 2)
+    if showZone
+        buyRiskBx := box.new(bar_index, extLow, bar_index + 1, buyRisk, border_color = color.new(bullCol, 60), bgcolor = color.new(bullCol, 88))
+
+if newSellRisk
+    useCD   = sellCD13 and not na(sellCDHi)
+    extHigh = useCD ? sellCDHi : sellSetupHi
+    extTR   = useCD ? sellCDHiTR : sellSetupHiTR
+    sellRisk   := extHigh + extTR
+    sellRiskOn := true
+    sellRiskLn := line.new(bar_index, sellRisk, bar_index + 1, sellRisk, color = bearCol, style = line.style_solid, width = 2)
+    if showZone
+        sellRiskBx := box.new(bar_index, sellRisk, bar_index + 1, extHigh, border_color = color.new(bearCol, 60), bgcolor = color.new(bearCol, 88))
+
+buyRiskHit  = buyRiskOn and (violationMode == "Close" ? close < buyRisk : low < buyRisk)
+sellRiskHit = sellRiskOn and (violationMode == "Close" ? close > sellRisk : high > sellRisk)
+
+if buyRiskOn and not na(buyRiskLn)
+    line.set_x2(buyRiskLn, bar_index)
+    if not na(buyRiskBx)
+        box.set_right(buyRiskBx, bar_index)
+if sellRiskOn and not na(sellRiskLn)
+    line.set_x2(sellRiskLn, bar_index)
+    if not na(sellRiskBx)
+        box.set_right(sellRiskBx, bar_index)
+
+if buyRiskHit
+    buyRiskOn := false
+if sellRiskHit
+    sellRiskOn := false
+
+// ------------------------------------------------------------------ plotting --
+showThisBuySetup  = showSetup and buySetup >= minCount and (showExtended or buySetup <= 9)
+showThisSellSetup = showSetup and sellSetup >= minCount and (showExtended or sellSetup <= 9)
+
+if showThisBuySetup
+    label.new(bar_index, setupBuyY, str.tostring(buySetup), style = label.style_none, textcolor = buySetupDone ? bullCol : color.new(bullCol, 30), size = size.tiny)
+if showThisSellSetup
+    label.new(bar_index, setupSellY, str.tostring(sellSetup), style = label.style_none, textcolor = sellSetupDone ? bearCol : color.new(bearCol, 30), size = size.tiny)
+
+if showCD and buyCDPrint > 0 and not buyCD13
+    label.new(bar_index, cdBuyY, str.tostring(buyCDPrint), style = label.style_none, textcolor = color.new(bullCol, 30), size = size.tiny)
+if showCD and sellCDPrint > 0 and not sellCD13
+    label.new(bar_index, cdSellY, str.tostring(sellCDPrint), style = label.style_none, textcolor = color.new(bearCol, 30), size = size.tiny)
+
+if showCD and buyCDDefer
+    label.new(bar_index, cdBuyY, "+", style = label.style_none, textcolor = color.new(bullCol, 30), size = size.tiny)
+if showCD and sellCDDefer
+    label.new(bar_index, cdSellY, "+", style = label.style_none, textcolor = color.new(bearCol, 30), size = size.tiny)
+
+if buyRecycle
+    label.new(bar_index, cdBuyY, "R", style = label.style_none, textcolor = bullCol, size = size.tiny)
+if sellRecycle
+    label.new(bar_index, cdSellY, "R", style = label.style_none, textcolor = bearCol, size = size.tiny)
+
+plotshape(showSetup and buy9, "Buy setup 9", shape.triangleup, location.belowbar, bullCol, size = size.tiny)
+plotshape(showSetup and sell9, "Sell setup 9", shape.triangledown, location.abovebar, bearCol, size = size.tiny)
+plotshape(showPerf and buyPerfected, "Buy setup perfected", shape.diamond, location.belowbar, bullCol, size = size.tiny)
+plotshape(showPerf and sellPerfected, "Sell setup perfected", shape.diamond, location.abovebar, bearCol, size = size.tiny)
+plotshape(showCD and buyCD13, "Buy countdown 13", shape.labelup, location.belowbar, bullCol, text = "13", textcolor = color.white, size = size.tiny)
+plotshape(showCD and sellCD13, "Sell countdown 13", shape.labeldown, location.abovebar, bearCol, text = "13", textcolor = color.white, size = size.tiny)
+plotshape(buy913, "Buy 9-13-9", shape.labelup, location.belowbar, bullCol, text = "9-13-9", textcolor = color.white, size = size.tiny)
+plotshape(sell913, "Sell 9-13-9", shape.labeldown, location.abovebar, bearCol, text = "9-13-9", textcolor = color.white, size = size.tiny)
+plotshape(buyRiskHit, "Buy risk level violated", shape.xcross, location.belowbar, color.new(bullCol, 40), size = size.tiny)
+plotshape(sellRiskHit, "Sell risk level violated", shape.xcross, location.abovebar, color.new(bearCol, 40), size = size.tiny)
+
+// ------------------------------------------------------------------- alerts --
+alertcondition(buy9, "Buy setup 9", "DeMark buy setup 9 on {{ticker}} {{interval}}")
+alertcondition(sell9, "Sell setup 9", "DeMark sell setup 9 on {{ticker}} {{interval}}")
+alertcondition(buyPerfected, "Buy setup perfected", "DeMark buy setup perfected on {{ticker}} {{interval}}")
+alertcondition(sellPerfected, "Sell setup perfected", "DeMark sell setup perfected on {{ticker}} {{interval}}")
+alertcondition(buyCD13, "Buy countdown 13", "DeMark buy countdown 13 on {{ticker}} {{interval}}")
+alertcondition(sellCD13, "Sell countdown 13", "DeMark sell countdown 13 on {{ticker}} {{interval}}")
+alertcondition(buyCDDefer, "Buy 13 deferred", "DeMark buy countdown 13 deferred on {{ticker}} {{interval}}")
+alertcondition(sellCDDefer, "Sell 13 deferred", "DeMark sell countdown 13 deferred on {{ticker}} {{interval}}")
+alertcondition(buy913, "Buy 9-13-9", "DeMark 9-13-9 buy count on {{ticker}} {{interval}}")
+alertcondition(sell913, "Sell 9-13-9", "DeMark 9-13-9 sell count on {{ticker}} {{interval}}")
+alertcondition(buyRecycle, "Buy countdown recycled", "DeMark buy countdown recycled on {{ticker}} {{interval}}")
+alertcondition(sellRecycle, "Sell countdown recycled", "DeMark sell countdown recycled on {{ticker}} {{interval}}")
+alertcondition(buyRiskHit, "Buy risk level violated", "DeMark buy risk level violated on {{ticker}} {{interval}}")
+alertcondition(sellRiskHit, "Sell risk level violated", "DeMark sell risk level violated on {{ticker}} {{interval}}")
+alertcondition(resBreak, "TDST resistance broken", "Close above TDST resistance on {{ticker}} {{interval}}")
+alertcondition(supBreak, "TDST support broken", "Close below TDST support on {{ticker}} {{interval}}")
