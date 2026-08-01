@@ -1,115 +1,171 @@
 # Pine_TECHNICAL
 
-Pine Script (v6) technical indicators for TradingView.
+Pine Script (v6) technical indicators for TradingView, currently a set of DeMark studies.
 
 | File | Indicator | Pane |
 | --- | --- | --- |
-| [`demark_td_sequential.pine`](demark_td_sequential.pine) | DeMark TD Sequential: TD Setup, TD Countdown, TDST levels | Overlay |
+| [`demark_9_13.pine`](demark_9_13.pine) | Sequential **and** Combo countdowns, TDST, Risk Levels and Zones, 9-13-9 | Overlay |
+| [`demark_td_sequential.pine`](demark_td_sequential.pine) | TD Sequential only: setup, countdown, TDST | Overlay |
 | [`demarker_oscillator.pine`](demarker_oscillator.pine) | DeMarker (DeM) exhaustion oscillator | Separate |
+
+Start with `demark_9_13.pine`; it is the complete one. The plain TD Sequential
+script is kept as a smaller, easier-to-read reference implementation.
+
+## About the licensed DeMARK indicators
+
+The official **DeMARK Indicators** are a commercial, closed-source product from
+DeMARK Analytics / Market Studies LLC. On TradingView they are sold as the
+`DeMARK 9-13` add-on (a paid Space subscription); the full library of 70-plus
+studies is only available on Symbolik, Bloomberg, CQG and DeMARK Prime. That
+code cannot be copied, and nothing here is derived from it.
+
+What *is* public is the methodology: Tom DeMark's rules are published in his own
+books, principally *The New Science of Technical Analysis* and Jason Perl's
+*DeMark Indicators* (Bloomberg Press). The scripts in this repo are an
+independent implementation from those published rules. Per its product page, the
+paid DeMARK 9-13 study consists of the 9 Setup, the 13 Countdown, TD Setup Trend
+(TDST), Perfected Setups, and Risk Levels and Zones, drawn from both the
+Sequential and Combo families — `demark_9_13.pine` covers that same ground.
+
+Two honest caveats. First, the licensed product is the reference implementation
+and the vendor has publicly said third-party versions contain mistakes; treat
+counts from this script as your own work, not as DeMARK output, and if you need
+the official numbers, buy the official product. Second, where the published
+sources disagree, the script follows the book wording and says so below.
 
 ## Installing a script
 
-1. Open a chart on TradingView and click **Pine Editor** at the bottom of the screen.
-2. Choose **Open → New indicator**, delete the template and paste the contents of the `.pine` file.
-3. Click **Save**, give it a name, then **Add to chart**.
+1. Open a chart on TradingView and click **Pine Editor** at the bottom.
+2. Choose **Open → New indicator**, delete the template, paste the `.pine` file.
+3. **Save**, name it, then **Add to chart**.
 4. Open the indicator settings to change the inputs described below.
 
-Both scripts are written for `//@version=6`. They only use standard built-ins, so
-they also compile on v5 if you change the version comment on the first line.
+Both overlay scripts are `//@version=6` and use only standard built-ins.
 
-## DeMark TD Sequential
+## DeMark 9-13 (`demark_9_13.pine`)
 
-Tom DeMark's trend exhaustion model. It counts how long a move has run rather
-than how fast, and flags the point where a trend is statistically likely to
-stall. The script draws three things.
-
-### TD Setup (counts 1 to 9)
+### TD Setup
 
 A setup starts with a **TD Price Flip**, the bar where the close crosses back
-over the close of four bars earlier:
+over the close four bars earlier:
 
 - Bearish flip (starts a **buy setup**): `close[1] > close[5]` and `close < close[4]`
 - Bullish flip (starts a **sell setup**): `close[1] < close[5]` and `close > close[4]`
 
-From there each bar must keep closing below (buy setup) or above (sell setup)
-the close four bars earlier. Nine consecutive qualifying bars complete the
-setup and print a triangle. One failing bar resets the count to zero, and a new
-setup can only begin after a fresh price flip.
+Nine consecutive qualifying bars complete the setup. Contrary to the common
+belief that the count stops at nine, DeMark's setup runs until the sequence is
+interrupted, so this script keeps counting: 10, 11, and on to 18 and beyond. The
+extension is not cosmetic, the recycle rules depend on it.
 
-**Perfection.** A completed buy setup is perfected when the low of bar 8 or 9
-is at or below the lows of bars 6 and 7 (mirrored for a sell setup). If that
-has not happened by bar 9, the script keeps watching for a set number of bars
-and prints the diamond later, which is DeMark's deferred perfection. An
-unperfected 9 usually needs one more push before it turns.
+**Perfection.** A buy setup is perfected when the low of bar 8 or 9 is at or
+below the lows of bars 6 and 7, mirrored for a sell setup. If that has not
+happened by bar 9 the script keeps watching for a configurable number of bars
+and marks the deferred perfection when it arrives.
 
-### TDST levels
+### TDST
 
-When a buy setup completes, the highest true high of its nine bars becomes
-**TDST resistance**; a completed sell setup leaves **TDST support** at the
-lowest true low. True high and true low include the previous close, as DeMark
-defines them. The line extends to the right until a close breaks through it. A
-break is the market telling you the exhaustion signal failed and the trend is
-continuing.
+A completed buy setup leaves **TDST resistance** at the highest true high of the
+setup; a sell setup leaves **TDST support** at its lowest true low. True high and
+true low include the previous close. The level and its line grow while the setup
+extends, and the line stops extending once a close breaks through.
 
-### TD Countdown (counts 1 to 13)
+### Countdown: Sequential or Combo
 
-A completed setup arms the countdown, which looks for the actual exhaustion
-point rather than the end of the momentum run:
+Pick the method in the settings.
 
-- Buy countdown: `close <= low[2]`
-- Sell countdown: `close >= high[2]`
+**Sequential** counts bars, not necessarily consecutive, where `close <= low[2]`
+for a buy or `close >= high[2]` for a sell, starting once the setup completes.
+Bar 13 must also satisfy the qualifier: its low must be at or below the close of
+countdown bar 8. A bar that counts but fails the qualifier prints `+` and the
+countdown waits for a bar that satisfies both.
 
-These bars do **not** need to be consecutive, so a countdown can take a long
-time to finish. The 9th setup bar can be countdown bar 1 if it qualifies.
+**Combo** is the stricter sibling and starts counting from bar 1 of the setup,
+which is why counts appear retroactively on the nine setup bars the moment the
+9 completes. Every buy count must satisfy all of:
 
-**Bar 13 qualifier.** The low of buy countdown bar 13 must be at or below the
-close of countdown bar 8 (mirrored for a sell countdown). A bar that satisfies
-the count but fails the qualifier is deferred and marked with a `+`; the
-countdown waits for the next bar that satisfies both.
+1. `close <= low[2]`
+2. `low < low[1]`
+3. `close < close[1]`
+4. `close` below the close of the previous countdown bar
 
-**Cancellation.** A completed setup in the opposite direction always cancels a
-running countdown. Two further behaviours are configurable: recycling the
-countdown when a new setup completes in the same direction, and cancelling it
-when price closes through the TDST level.
+Version I applies those rules to all 13 counts. Version II applies them through
+count 10 and then only requires successively lower closes for 11, 12 and 13.
+The optional **termination count** lets the final count be satisfied by either
+the close or the open of the bar.
+
+**Aggressive** mode replaces the close in rule 1 with the bar's own low or high,
+so it applies to Sequential and Combo alike.
+
+### Cancellation and recycling
+
+Both are the book's rules, and both can be switched off:
+
+- A completed setup in the opposite direction erases the countdown.
+- A bar that posts a **true low above TDST resistance** erases a buy countdown; a
+  **true high below TDST support** erases a sell countdown. Note this is a true
+  low/high test, not a close test.
+- **Qualifier I**: when a new same-direction setup completes and its true range
+  is at least as large as the active setup's but less than 1.618 times it, the
+  countdown recycles and starts again.
+- **Qualifier II**: if the new setup sits entirely inside the previous setup's
+  true range, the earlier setup stays active and the countdown survives.
+- A setup that stretches to 18 bars while a countdown is developing always
+  recycles it, and prints `R`.
+
+### Risk Levels and Zones
+
+DeMark's protective stop. For a buy signal, find the bar with the lowest true
+low in the pattern and subtract that bar's true range from its true low; mirror
+it for a sell. The countdown version scans every bar of the countdown phase,
+numbered or not, which is why it usually sits further away than the setup
+version. The script draws the level, optionally shades the zone between the
+pattern extreme and the level, and marks the bar that violates it. The default
+violation test is intrabar, which is DeMark's own stated preference.
+
+### 9-13-9
+
+After a completed 13, a fresh same-direction setup that begins after the 13 bar,
+with no opposing setup in between, prints `9-13-9`. It is a second, usually
+better, opportunity to fade the same trend.
 
 ### Inputs
 
-| Group | Input | Default | Notes |
-| --- | --- | --- | --- |
-| TD Setup | Show setup counts | on | |
-| TD Setup | Start plotting counts at | 1 | Set to 7 or 8 for a cleaner chart |
-| TD Setup | Mark perfected setups | on | Diamond marker |
-| TD Setup | Bars allowed for deferred perfection | 8 | 0 disables deferral |
-| TD Countdown | Show countdown counts | on | |
-| TD Countdown | Aggressive countdown | off | Uses `low <= low[2]` instead of the close |
-| TD Countdown | Apply the bar 13 qualifier | on | |
-| TD Countdown | Cancel countdown on a TDST break | off | |
-| TD Countdown | Recycle countdown on a new same-direction setup | on | |
-| TDST Levels | Show TDST support / resistance, line style, width | on, dashed, 1 | |
-| Appearance | Buy / sell colour, label offset (ATR multiple) | teal, red, 0.4 | |
+| Group | Input | Default |
+| --- | --- | --- |
+| Method | Countdown method: Sequential, Combo V1, Combo V2 | Sequential |
+| Method | Aggressive countdown | off |
+| TD Setup | Show setup counts / start plotting at / show counts past 9 | on / 1 / on |
+| TD Setup | Mark perfected setups, bars allowed for deferred perfection | on, 8 |
+| TD Countdown | Show counts, bar 13 qualifier, termination count | on, on, off |
+| TD Countdown | Cancel on opposite setup, cancel on TDST | on, on |
+| TD Countdown | Recycle rule: DeMark qualifiers, Always, Never | DeMark qualifiers |
+| Risk Levels | On setup 9 / on countdown 13 / shade zone | off / on / on |
+| Risk Levels | Violated by: Intrabar or Close | Intrabar |
+| TDST | Show levels, line style, width | on, dashed, 1 |
+| Appearance | Buy and sell colours, label offset (ATR multiple) | teal, red, 0.4 |
 
 ### Reading the chart
 
 - Setup counts sit next to the bars, countdown counts one row further out.
-- Triangle = completed 9, diamond = perfected setup, `13` label = completed countdown.
-- A buy 9 or 13 is a signal that selling pressure is exhausted, not a mechanical
-  buy order. The usual confirmation is a close back above the close of the
-  signal bar or a bullish price flip immediately afterwards.
-- Confluence matters: a 13 that lands on TDST support, a prior swing level or an
-  oversold DeMarker reading is worth far more than one in mid-air.
+- Triangle = completed 9, diamond = perfected setup, `13` label = completed
+  countdown, `+` = deferred 13, `R` = recycled countdown, `x` = risk level gone.
+- A buy 9 or 13 says selling pressure is exhausted; it is not an order. The usual
+  confirmation is a close back above the close of the signal bar, or a bullish
+  price flip right after. DeMark's own filter for a setup trade is to take it
+  only when the distance to TDST is more than 1.5 times the distance to the risk
+  level.
+- Confluence matters. A 13 landing on TDST, a prior swing, or an oversold
+  DeMarker reading is worth far more than one in mid-air.
 
-### Limitations
+## TD Sequential (`demark_td_sequential.pine`)
 
-- TradingView keeps only the last 500 labels per indicator, so counts eventually
-  disappear from deep history. Raise "Start plotting counts at" to stretch that
-  budget further back.
-- DeMark's recycle rule compares the size of the new setup with the previous
-  one. The script uses the simpler "any new same-direction setup restarts the
-  countdown" interpretation, which you can switch off.
-- Counts are evaluated on the close. On an unclosed bar the last count can flip
-  as price moves; only closed bars are final.
+The same Sequential setup, countdown, perfection and TDST logic in a much
+shorter script, without Combo, risk levels, extended setups, the recycle
+qualifiers or 9-13-9. Its optional TDST cancellation uses a close through the
+level rather than the book's true low/high test. Useful if you want to read the
+method in about a hundred lines, or want a plain 9-13 chart.
 
-## DeMarker (DeM)
+## DeMarker (`demarker_oscillator.pine`)
 
 The companion oscillator, bounded between 0 and 1:
 
@@ -119,10 +175,10 @@ DeMin = low  < low[1]  ? low[1] - low   : 0
 DeM   = MA(DeMax, n) / (MA(DeMax, n) + MA(DeMin, n))
 ```
 
-Above 0.7 the advance is stretched, below 0.3 the decline is. Because the
-signal is counter-trend, the most reliable use is as a filter: take TD Setup and
-Countdown signals more seriously when DeMarker is at an extreme, and treat the
-move back inside the band as the trigger.
+Above 0.7 the advance is stretched, below 0.3 the decline is. The signal is
+counter-trend, so the most reliable use is as a filter: take setup and countdown
+signals more seriously at an extreme, and treat the move back inside the band as
+the trigger.
 
 | Input | Default | Notes |
 | --- | --- | --- |
@@ -134,12 +190,26 @@ move back inside the band as the trigger.
 
 ## Alerts
 
-Both scripts expose alert conditions through **Create alert → Condition →
-indicator name**: setup 9s, perfected setups, countdown 13s and TDST breaks for
-TD Sequential, and the overbought/oversold crosses for DeMarker.
+Every script exposes alert conditions through **Create alert → Condition →
+indicator name**: setup 9s, perfected setups, deferred and completed 13s,
+recycles, 9-13-9 counts, risk level violations and TDST breaks for the DeMark
+scripts, and the level crosses for DeMarker.
+
+## Limitations
+
+- TradingView keeps only the last 500 labels per indicator, so counts eventually
+  drop off deep history. Raise "Start plotting counts at" to stretch the budget.
+- Counts are evaluated on the close. On an unclosed bar the last count can flip
+  as price moves; only closed bars are final.
+- Sources disagree on Combo Version II. This script follows DeMark's own wording,
+  where counts 11 to 13 need only successively lower or higher closes. Some
+  write-ups instead apply the plain Sequential rule to those counts.
+- Where DeMark describes discretionary judgement, the script has to pick a rule.
+  The recycle qualifiers are the clearest case: Qualifier II is implemented as
+  full containment of the new setup inside the previous setup's true range.
 
 ## Disclaimer
 
-These scripts are for research and education. They are not financial advice and
-carry no guarantee of profitability. Test any signal on your own instruments and
-timeframes before risking money.
+For research and education. Not financial advice, no guarantee of
+profitability, and not affiliated with DeMARK Analytics or Market Studies LLC.
+Test any signal on your own instruments and timeframes before risking money.
