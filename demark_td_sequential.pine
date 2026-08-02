@@ -30,6 +30,13 @@
 //    Bar 13 qualifier: the low (high) of bar 13 must be at or beyond the close
 //    of countdown bar 8, otherwise the bar is deferred and marked "+".
 //    A completed setup in the opposite direction cancels the countdown.
+//
+//  Entries
+//    A completed 13 is tradable either on its close (aggressive) or on the
+//    first price flip after it (conservative). The stop is the risk level, the
+//    extreme true low of the countdown phase less that bar's true range, and
+//    the objective is TDST. Setup nine entries and their filters live in
+//    demark_9_13.pine.
 // =============================================================================
 
 indicator("DeMark TD Sequential", "TD SEQ", overlay = true, max_labels_count = 500, max_lines_count = 500)
@@ -37,6 +44,7 @@ indicator("DeMark TD Sequential", "TD SEQ", overlay = true, max_labels_count = 5
 // ------------------------------------------------------------------- inputs --
 GS = "TD Setup"
 GC = "TD Countdown"
+GE = "Entries"
 GT = "TDST Levels"
 GA = "Appearance"
 
@@ -53,6 +61,12 @@ useQualifier = input.bool(true, "Apply the bar 13 qualifier", group = GC)
 cancelOnTDST = input.bool(false, "Cancel countdown on a TDST break", group = GC,
                           tooltip = "A buy countdown is cancelled by a close above TDST resistance, a sell countdown by a close below TDST support.")
 recycle      = input.bool(true, "Recycle countdown on a new same-direction setup", group = GC)
+
+showTrades  = input.bool(true, "Show buy / sell entries on a 13", group = GE)
+entryStyle  = input.string("Conservative", "Entry timing", options = ["Aggressive", "Conservative"], group = GE,
+                             tooltip = "Aggressive takes the close of the thirteen. Conservative waits for the first close beyond the close four bars earlier, which is DeMark's way of avoiding a recycle.")
+flipWindow  = input.int(12, "Bars to wait for confirmation", minval = 1, maxval = 60, group = GE)
+showStopTgt = input.bool(true, "Draw stop and target while in a trade", group = GE)
 
 showTDST     = input.bool(true, "Show TDST support / resistance", group = GT)
 tdstStyleIn  = input.string("Dashed", "Line style", options = ["Solid", "Dashed", "Dotted"], group = GT)
@@ -173,6 +187,10 @@ var bool  buyCDOn  = false
 var bool  sellCDOn = false
 var float buyCD8   = na
 var float sellCD8  = na
+var float buyCDLo   = na   // lowest true low of the countdown phase, for the stop
+var float buyCDLoTR = na
+var float sellCDHi   = na
+var float sellCDHiTR = na
 
 int  buyCDPrint  = 0
 int  sellCDPrint = 0
@@ -193,13 +211,25 @@ if buySetupDone
 
 // A completed setup arms - or recycles - the countdown in the same direction.
 if buySetupDone and (not buyCDOn or recycle)
-    buyCDOn := true
-    buyCD   := 0
-    buyCD8  := na
+    buyCDOn   := true
+    buyCD     := 0
+    buyCD8    := na
+    buyCDLo   := na
+    buyCDLoTR := na
 if sellSetupDone and (not sellCDOn or recycle)
-    sellCDOn := true
-    sellCD   := 0
-    sellCD8  := na
+    sellCDOn   := true
+    sellCD     := 0
+    sellCD8    := na
+    sellCDHi   := na
+    sellCDHiTR := na
+
+// The stop comes from the most extreme bar of the countdown phase, numbered or not.
+if buyCDOn and (na(buyCDLo) or trueLow < buyCDLo)
+    buyCDLo   := trueLow
+    buyCDLoTR := trueHigh - trueLow
+if sellCDOn and (na(sellCDHi) or trueHigh > sellCDHi)
+    sellCDHi   := trueHigh
+    sellCDHiTR := trueHigh - trueLow
 
 if cancelOnTDST and resBreak
     buyCDOn := false
@@ -242,6 +272,112 @@ if sellCDOn and cdSellCond
             sellCD   := 0
             sellCD8  := na
 
+// -------------------------------------------------------- buy / sell entries --
+// DeMark's two ways in: the aggressive entry on the close of the thirteen, or
+// the conservative entry on the first price flip after it. The stop is the risk
+// level (extreme of the countdown less that bar's true range) and the objective
+// is TDST.
+buySigStop  = buyCD13 ? buyCDLo - buyCDLoTR : na
+sellSigStop = sellCD13 ? sellCDHi + sellCDHiTR : na
+
+var int   pos       = 0
+var float posEntry  = na
+var float posStop   = na
+var float posTarget = na
+
+var bool  pendBuy      = false
+var int   pendBuyBar   = na
+var float pendBuyStop  = na
+var bool  pendSell     = false
+var int   pendSellBar  = na
+var float pendSellStop = na
+
+bool goLong   = false
+bool goShort  = false
+bool exitStop = false
+bool exitTgt  = false
+
+if pos == 1
+    if low < posStop
+        exitStop := true
+        pos      := 0
+    else if not na(posTarget) and high > posTarget
+        exitTgt := true
+        pos     := 0
+else if pos == -1
+    if high > posStop
+        exitStop := true
+        pos      := 0
+    else if not na(posTarget) and low < posTarget
+        exitTgt := true
+        pos     := 0
+
+float longStop  = na
+float shortStop = na
+
+if entryStyle == "Aggressive"
+    if not na(buySigStop)
+        longStop := buySigStop
+    if not na(sellSigStop)
+        shortStop := sellSigStop
+else
+    if not na(buySigStop)
+        pendBuy     := true
+        pendBuyBar  := bar_index
+        pendBuyStop := buySigStop
+    else if pendBuy and bar_index > pendBuyBar
+        if low < pendBuyStop or bar_index - pendBuyBar > flipWindow
+            pendBuy := false
+        else if close > close[4]
+            longStop := pendBuyStop
+            pendBuy  := false
+    if not na(sellSigStop)
+        pendSell     := true
+        pendSellBar  := bar_index
+        pendSellStop := sellSigStop
+    else if pendSell and bar_index > pendSellBar
+        if high > pendSellStop or bar_index - pendSellBar > flipWindow
+            pendSell := false
+        else if close < close[4]
+            shortStop := pendSellStop
+            pendSell  := false
+
+// A TDST level price has already passed is no target at all, so it is dropped.
+if not na(longStop) and pos != 1 and close > longStop
+    goLong    := true
+    pos       := 1
+    posEntry  := close
+    posStop   := longStop
+    posTarget := na(tdstRes) or tdstRes <= close ? na : tdstRes
+
+if not na(shortStop) and pos != -1 and close < shortStop
+    goShort   := true
+    pos       := -1
+    posEntry  := close
+    posStop   := shortStop
+    posTarget := na(tdstSup) or tdstSup >= close ? na : tdstSup
+
+var line stopLn = na
+var line tgtLn  = na
+
+if showTrades and showStopTgt and (goLong or goShort)
+    stopLn := line.new(bar_index, posStop, bar_index + 1, posStop, color = color.new(color.red, 20), style = line.style_dotted)
+    tgtLn  := na(posTarget) ? na : line.new(bar_index, posTarget, bar_index + 1, posTarget, color = color.new(color.green, 20), style = line.style_dotted)
+
+if showStopTgt and pos != 0
+    if not na(stopLn)
+        line.set_x2(stopLn, bar_index)
+    if not na(tgtLn)
+        line.set_x2(tgtLn, bar_index)
+
+if showTrades and goLong
+    label.new(bar_index, low - atrOff * 3.4, "BUY " + str.tostring(posEntry, format.mintick), style = label.style_label_up, color = bullCol, textcolor = color.white, size = size.small)
+if showTrades and goShort
+    label.new(bar_index, high + atrOff * 3.4, "SELL " + str.tostring(posEntry, format.mintick), style = label.style_label_down, color = bearCol, textcolor = color.white, size = size.small)
+
+plotshape((showTrades and exitStop) ? posStop : na, "Stopped out", shape.xcross, location.absolute, color.new(color.red, 20), size = size.tiny)
+plotshape((showTrades and exitTgt) ? posTarget : na, "Target reached", shape.square, location.absolute, color.new(color.green, 20), size = size.tiny)
+
 // ------------------------------------------------------------------ plotting --
 if showSetup and buySetup >= minCount
     label.new(bar_index, setupBuyY, str.tostring(buySetup), style = label.style_none, textcolor = buySetupDone ? bullCol : color.new(bullCol, 30), size = size.tiny)
@@ -276,5 +412,9 @@ alertcondition(buyPerfected, "TD buy setup perfected", "TD buy setup perfected o
 alertcondition(sellPerfected, "TD sell setup perfected", "TD sell setup perfected on {{ticker}} {{interval}}")
 alertcondition(buyCD13, "TD buy countdown 13", "TD buy countdown 13 on {{ticker}} {{interval}}")
 alertcondition(sellCD13, "TD sell countdown 13", "TD sell countdown 13 on {{ticker}} {{interval}}")
+alertcondition(goLong, "Buy entry", "TD buy entry on {{ticker}} {{interval}} at {{close}}")
+alertcondition(goShort, "Sell entry", "TD sell entry on {{ticker}} {{interval}} at {{close}}")
+alertcondition(exitStop, "Stopped out", "TD trade stopped out on {{ticker}} {{interval}}")
+alertcondition(exitTgt, "Target reached", "TD trade reached TDST target on {{ticker}} {{interval}}")
 alertcondition(resBreak, "TDST resistance broken", "Close above TDST resistance on {{ticker}} {{interval}}")
 alertcondition(supBreak, "TDST support broken", "Close below TDST support on {{ticker}} {{interval}}")

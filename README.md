@@ -4,8 +4,8 @@ Pine Script (v6) technical indicators for TradingView, currently a set of DeMark
 
 | File | Indicator | Pane |
 | --- | --- | --- |
-| [`demark_9_13.pine`](demark_9_13.pine) | Sequential **and** Combo countdowns, TDST, Risk Levels and Zones, 9-13-9 | Overlay |
-| [`demark_td_sequential.pine`](demark_td_sequential.pine) | TD Sequential only: setup, countdown, TDST | Overlay |
+| [`demark_9_13.pine`](demark_9_13.pine) | Sequential **and** Combo countdowns, TDST, Risk Levels and Zones, 9-13-9, buy/sell entries | Overlay |
+| [`demark_td_sequential.pine`](demark_td_sequential.pine) | TD Sequential only: setup, countdown, TDST, buy/sell entries on a 13 | Overlay |
 | [`demarker_oscillator.pine`](demarker_oscillator.pine) | DeMarker (DeM) exhaustion oscillator | Separate |
 
 Start with `demark_9_13.pine`; it is the complete one. The plain TD Sequential
@@ -128,6 +128,45 @@ After a completed 13, a fresh same-direction setup that begins after the 13 bar,
 with no opposing setup in between, prints `9-13-9`. It is a second, usually
 better, opportunity to fade the same trend.
 
+### Where you would buy and sell
+
+The counts say a trend is exhausted; they do not say where to trade. These
+markers apply DeMark's own entry rules to the counts and put a `BUY` or `SELL`
+label, with the price, on the bar where the trade would be taken.
+
+**Timing.** DeMark gives two ways into a completed 13:
+
+- *Aggressive*: buy the close of the thirteen.
+- *Conservative* (the default here): wait for the first close beyond the close
+  four bars earlier, which is a price flip in your direction. It gives up some
+  of the entry price but avoids being caught by a recycle. If no flip arrives
+  within the confirmation window, the signal is dropped; if price takes out the
+  risk level while you are still waiting, the signal is dropped too.
+
+**Which signals.** Thirteens by default. Setup nines can be traded as well but
+they are filtered, because most completed setups are not worth trading. Perl's
+conditions are used: the setup must be perfected, no bar inside it may have
+closed beyond TDST, and bar nine must close within a set distance of TDST.
+
+**Where you get out.** The stop is the risk level described above. The target is
+TDST, which is where DeMark expects a countertrend move to run to. A TDST level
+that price has already passed is dropped rather than used, so a trade can be
+carried on the stop alone. The trade closes with an `x` if the stop goes and a
+square if the target is reached, and an opposite entry signal reverses the
+position.
+
+**Reward to risk.** DeMark's filter is to skip the trade unless the distance to
+TDST is at least 1.5 times the distance to the risk level. That is the default
+and it removes a lot of signals; set it to 0 to see them all.
+
+The panel in the corner shows the current position, entry, stop, target, and the
+open result in R multiples.
+
+Two things this is not. It is an indicator, not a `strategy()`, so there is no
+backtest report, no commission and no slippage; entries and exits are marked at
+the close of the bar that triggers them. And one position is tracked at a time,
+so a second signal in the same direction is ignored rather than added to.
+
 ### Inputs
 
 | Group | Input | Default |
@@ -141,6 +180,13 @@ better, opportunity to fade the same trend.
 | TD Countdown | Recycle rule: DeMark qualifiers, Always, Never | DeMark qualifiers |
 | Risk Levels | On setup 9 / on countdown 13 / shade zone | off / on / on |
 | Risk Levels | Violated by: Intrabar or Close | Intrabar |
+| Entries | Show buy / sell entries | on |
+| Entries | Trade these signals: Countdown 13, Setup 9, Both | Countdown 13 |
+| Entries | Entry timing: Aggressive or Conservative | Conservative |
+| Entries | Bars to wait for confirmation | 12 |
+| Entries | Filter setup 9 entries, TDST proximity (ATR) | on, 1.0 |
+| Entries | Minimum reward to risk | 1.5 |
+| Entries | Draw stop and target, show trade panel | on, on |
 | TDST | Show levels, line style, width | on, dashed, 1 |
 | Appearance | Buy and sell colours, label offset (ATR multiple) | teal, red, 0.4 |
 
@@ -148,22 +194,28 @@ better, opportunity to fade the same trend.
 
 - Setup counts sit next to the bars, countdown counts one row further out.
 - Triangle = completed 9, diamond = perfected setup, `13` label = completed
-  countdown, `+` = deferred 13, `R` = recycled countdown, `x` = risk level gone.
-- A buy 9 or 13 says selling pressure is exhausted; it is not an order. The usual
-  confirmation is a close back above the close of the signal bar, or a bullish
-  price flip right after. DeMark's own filter for a setup trade is to take it
-  only when the distance to TDST is more than 1.5 times the distance to the risk
-  level.
+  countdown, `+` = deferred 13, `R` = recycled countdown.
+- `BUY` and `SELL` labels are the entries, with the dotted red and green lines
+  the stop and target while the trade is open. An `x` is a stop, a square is the
+  target, and a bare `x` on a risk level with no trade attached just means that
+  level was violated.
+- A buy 9 or 13 on its own says selling pressure is exhausted; it is not an
+  order, which is exactly why the entry rules above add a confirmation step.
 - Confluence matters. A 13 landing on TDST, a prior swing, or an oversold
   DeMarker reading is worth far more than one in mid-air.
 
 ## TD Sequential (`demark_td_sequential.pine`)
 
 The same Sequential setup, countdown, perfection and TDST logic in a much
-shorter script, without Combo, risk levels, extended setups, the recycle
-qualifiers or 9-13-9. Its optional TDST cancellation uses a close through the
-level rather than the book's true low/high test. Useful if you want to read the
-method in about a hundred lines, or want a plain 9-13 chart.
+shorter script, without Combo, extended setups, the recycle qualifiers or
+9-13-9. Its optional TDST cancellation uses a close through the level rather
+than the book's true low/high test. Useful if you want to read the method in a
+couple of hundred lines, or want a plain 9-13 chart.
+
+It marks buy and sell entries too, but only from a completed 13, with the same
+aggressive or conservative timing, the risk level as the stop and TDST as the
+target. Setup nine entries, the reward-to-risk filter and the trade panel are
+only in `demark_9_13.pine`.
 
 ## DeMarker (`demarker_oscillator.pine`)
 
@@ -191,9 +243,10 @@ the trigger.
 ## Alerts
 
 Every script exposes alert conditions through **Create alert → Condition →
-indicator name**: setup 9s, perfected setups, deferred and completed 13s,
-recycles, 9-13-9 counts, risk level violations and TDST breaks for the DeMark
-scripts, and the level crosses for DeMarker.
+indicator name**: buy and sell entries, stops and targets, setup 9s, perfected
+setups, deferred and completed 13s, recycles, 9-13-9 counts, risk level
+violations and TDST breaks for the DeMark scripts, and the level crosses for
+DeMarker.
 
 ## Limitations
 
@@ -207,6 +260,9 @@ scripts, and the level crosses for DeMarker.
 - Where DeMark describes discretionary judgement, the script has to pick a rule.
   The recycle qualifiers are the clearest case: Qualifier II is implemented as
   full containment of the new setup inside the previous setup's true range.
+- The entry markers are an indicator drawing labels, not a backtest. Entries and
+  exits print at the close of the triggering bar, with no costs modelled, and
+  only one position is tracked at a time.
 
 ## Disclaimer
 
