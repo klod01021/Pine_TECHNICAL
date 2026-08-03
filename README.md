@@ -188,7 +188,7 @@ so a second signal in the same direction is ignored rather than added to.
 
 | Group | Input | Default |
 | --- | --- | --- |
-| Chart display | How much to show: Simple, Signals only, Full, Custom | Simple |
+| Chart display | How much to show: Full, Simple, Signals only, Custom | Full |
 | Method | Countdown method: Sequential, Combo V1, Combo V2 | Sequential |
 | Method | Aggressive countdown | off |
 | TD Setup | Show setup counts / start plotting at / show counts past 9 | on / 1 / on |
@@ -213,32 +213,27 @@ so a second signal in the same direction is ignored rather than added to.
 
 ### Chart legend
 
-The default is **Simple** display mode (set under Chart display → How much to
-show). That hides the early counts so the chart only shows what you actually
-need to act on. Switch to Full if you want every number from 1, or Signals only
-if you want the markers with no count numbers at all.
+The default is **Full** display mode: every bar that counts gets a number, just
+as before. Setup counts are written `S1`…`S9` and countdown counts `C1`…`C13`,
+so the two phases stay easy to tell apart. Everything about buying sits below
+the bars in teal, everything about selling above them in red.
 
-**In Simple mode, the whole chart is just this:**
+If the chart feels crowded later, switch **How much to show** to Simple (only
+`S8`/`S9` and `C11`–`C13`) or Signals only (markers and entries, no numbers).
 
 | What you see | Meaning |
 | --- | --- |
-| `S8`, `S9` | The setup is nearly done / done |
+| `S1` … `S9` | Setup count on that bar |
+| `C1` … `C12`, `C+` | Countdown count, or a deferred 13 |
 | Teal or red triangle | Setup 9 completed |
 | Diamond | That setup is perfected |
-| `C11`, `C12`, `C+` | Countdown almost done, or deferred |
 | `CD13` tag | Countdown finished — the exhaustion signal |
 | `BUY` / `SELL` | Where the trade would be taken |
 | Dashed line | TDST support or resistance |
 | Solid line / shaded band | Risk level and risk zone |
 | Dotted red / green lines | Stop and target of an open trade |
 
-Everything about buying is below the bars in teal, everything about selling is
-above them in red.
-
-**Full mode** adds the earlier counts (`S1`…`S7`, `C1`…`C10`) and the setup
-extension past nine (`S10`…`S18`). Setup and countdown stay written differently
-(`S` vs `C`, or circled digits) so they cannot be confused. The rest of the
-marks are the same in every mode:
+The rest of the marks are the same in every mode:
 
 | Mark | Meaning |
 | --- | --- |

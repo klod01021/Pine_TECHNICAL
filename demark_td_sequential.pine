@@ -49,8 +49,8 @@ GT = "TDST Levels"
 GA = "Appearance"
 GD = "Chart display"
 
-chartMode = input.string("Simple", "How much to show", options = ["Simple", "Signals only", "Full", "Custom"], group = GD,
-                          tooltip = "Simple (recommended): only the late counts that matter, S8-S9 and C11-C13, plus the big markers and entries. Signals only: no count numbers at all, just the 9 triangle, 13 tag, BUY/SELL and levels. Full: every count from 1. Custom: use the settings below.")
+chartMode = input.string("Full", "How much to show", options = ["Full", "Simple", "Signals only", "Custom"], group = GD,
+                          tooltip = "Full (default): every setup and countdown count on each bar, written as S1-S9 and C1-C13. Simple: only the late counts S8-S9 and C11-C13. Signals only: no count numbers, just the 9 triangle, CD13 tag, BUY/SELL and levels. Custom: use the settings below.")
 
 showSetup    = input.bool(true, "Custom: show setup counts", group = GS)
 minCount     = input.int(1, "Custom: start plotting setup counts at", minval = 1, maxval = 9, group = GS,
