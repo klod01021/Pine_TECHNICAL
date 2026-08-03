@@ -190,19 +190,45 @@ so a second signal in the same direction is ignored rather than added to.
 | TDST | Show levels, line style, width | on, dashed, 1 |
 | Appearance | Buy and sell colours, label offset (ATR multiple) | teal, red, 0.4 |
 
-### Reading the chart
+### Chart legend
 
-- Setup counts sit next to the bars, countdown counts one row further out.
-- Triangle = completed 9, diamond = perfected setup, `13` label = completed
-  countdown, `+` = deferred 13, `R` = recycled countdown.
-- `BUY` and `SELL` labels are the entries, with the dotted red and green lines
-  the stop and target while the trade is open. An `x` is a stop, a square is the
-  target, and a bare `x` on a risk level with no trade attached just means that
-  level was violated.
-- A buy 9 or 13 on its own says selling pressure is exhausted; it is not an
-  order, which is exactly why the entry rules above add a confirmation step.
-- Confluence matters. A 13 landing on TDST, a prior swing, or an oversold
-  DeMarker reading is worth far more than one in mid-air.
+Everything to do with buying sits **below** the bars in teal, everything to do
+with selling sits **above** them in red, and the marks are stacked in rows:
+setup counts closest to the bar, countdown counts further out, entry labels
+furthest out.
+
+| Mark | Where | Meaning |
+| --- | --- | --- |
+| `1` … `9` | Row 1, dimmed | Setup count. Bar 9 is drawn in full colour |
+| `10` … `18` | Row 1, dimmed | The setup running past nine. 18 is drawn in full colour |
+| Small triangle | Against the bar | The setup completed on this bar |
+| Diamond | Against the bar | The setup is perfected. May print after bar 9 if perfection was deferred |
+| `1` … `12` | Row 2, dimmed | Countdown count. With Combo, counts 1 to 9 appear retroactively on the setup bars |
+| `+` | Row 2 | The bar counted but failed the bar 13 qualifier, so the 13 is deferred |
+| `13` in a solid tag | Against the bar | Countdown complete. This is the exhaustion signal |
+| `9-13-9` in a solid tag | Against the bar | A fresh qualified setup after a 13, a second chance at the same trade |
+| `R` | Row 2 | The countdown was recycled and starts again from zero |
+| Faded `x` | Against the bar | A risk level was violated |
+| Dashed horizontal line | At the level | TDST. Red above is resistance from a buy setup, teal below is support from a sell setup. Stops extending once a close breaks it |
+| Solid horizontal line | At the level | The risk level of a signal. Teal for a buy, red for a sell |
+| Shaded band | Under or over the extreme | The risk zone, between the pattern extreme and the risk level |
+| `BUY 123.45` | Row 3 | Long entry, at that price, on that bar |
+| `SELL 123.45` | Row 3 | Short entry |
+| Dotted red line | At the level | The stop of the trade that is currently open |
+| Dotted green line | At the level | The target of the trade that is currently open |
+| Red `x` | At the stop price | The open trade was stopped out here |
+| Green square | At the target price | The open trade reached TDST here |
+| Corner panel | Top right | Position, entry, stop, target, and open result in R multiples |
+
+Two `x` marks mean different things, and the difference is where they sit. A
+faded teal or red `x` hugging the bar is bookkeeping: a risk level was taken
+out. A solid red `x` floating at the stop price closes a trade that the script
+had marked as open.
+
+A buy 9 or 13 on its own says selling pressure is exhausted; it is not an order,
+which is exactly why the entry rules add a confirmation step. Confluence
+matters too: a 13 landing on TDST, on a prior swing, or on an oversold DeMarker
+reading is worth far more than one in mid-air.
 
 ## TD Sequential (`demark_td_sequential.pine`)
 
@@ -216,6 +242,11 @@ It marks buy and sell entries too, but only from a completed 13, with the same
 aggressive or conservative timing, the risk level as the stop and TDST as the
 target. Setup nine entries, the reward-to-risk filter and the trade panel are
 only in `demark_9_13.pine`.
+
+The legend above applies here as well, minus the marks for the features it does
+not have: no `R`, no `9-13-9`, no counts past nine, and no risk level lines,
+risk zones or faded `x` marks, since risk levels are only drawn in the full
+script. The stop of an open trade is still drawn as a dotted red line.
 
 ## DeMarker (`demarker_oscillator.pine`)
 
@@ -239,6 +270,14 @@ the trigger.
 | Overbought / Oversold | 0.7 / 0.3 | |
 | Signal smoothing | 0 | 0 turns the signal line off |
 | Shade overbought / oversold | on | Background highlight |
+
+In its own pane: the thick line is DeMarker itself, turning red in the
+overbought zone, teal in the oversold zone and grey in between. The thin orange
+line is the smoothing, if you switch it on. The dashed lines are the two levels
+with the neutral band shaded between them, the dotted line is the 0.5 midline,
+and the background lights up while the reading is at an extreme. A small
+triangle at the top or bottom of the pane marks the bar where the oscillator
+came back inside the band, which is the usual trigger.
 
 ## Alerts
 
