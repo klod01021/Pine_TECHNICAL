@@ -188,6 +188,7 @@ so a second signal in the same direction is ignored rather than added to.
 
 | Group | Input | Default |
 | --- | --- | --- |
+| Chart display | How much to show: Simple, Signals only, Full, Custom | Simple |
 | Method | Countdown method: Sequential, Combo V1, Combo V2 | Sequential |
 | Method | Aggressive countdown | off |
 | TD Setup | Show setup counts / start plotting at / show counts past 9 | on / 1 / on |
@@ -212,49 +213,41 @@ so a second signal in the same direction is ignored rather than added to.
 
 ### Chart legend
 
-Everything to do with buying sits **below** the bars in teal, everything to do
-with selling sits **above** them in red, and the marks are stacked in rows:
-setup counts closest to the bar, countdown counts further out, entry labels
-furthest out.
+The default is **Simple** display mode (set under Chart display → How much to
+show). That hides the early counts so the chart only shows what you actually
+need to act on. Switch to Full if you want every number from 1, or Signals only
+if you want the markers with no count numbers at all.
 
-Setup counts and countdown counts are both numbered 1 upwards, so they are
-written differently to keep them apart: setups are `S1`…`S9` and countdowns are
-`C1`…`C13` by default. You can switch either to plain digits or to circled
-digits (①②③) in the Appearance group, give the countdown counts their own
-colour, and move the three rows independently.
+**In Simple mode, the whole chart is just this:**
 
-| Mark | Where | Meaning |
-| --- | --- | --- |
-| `S1` … `S9` | Row 1, dimmed | Setup count. `S9` is drawn in full colour |
-| `S10` … `S18` | Row 1, dimmed | The setup running past nine. `S18` is in full colour |
-| Small triangle | Against the bar | The setup completed on this bar |
-| Diamond | Against the bar | The setup is perfected. May print after bar 9 if perfection was deferred |
-| `C1` … `C12` | Row 2 | Countdown count. With Combo, `C1` to `C9` appear retroactively on the setup bars |
-| `C+` | Row 2 | The bar counted but failed the bar 13 qualifier, so the 13 is deferred |
-| `13` in a solid tag | Against the bar | Countdown complete. This is the exhaustion signal |
-| `9-13-9` in a solid tag | Against the bar | A fresh qualified setup after a 13, a second chance at the same trade |
-| `R` | Row 2 | The countdown was recycled and starts again from zero |
-| Faded `x` | Against the bar | A risk level was violated |
-| Dashed horizontal line | At the level | TDST. Red above is resistance from a buy setup, teal below is support from a sell setup. Stops extending once a close breaks it |
-| Solid horizontal line | At the level | The risk level of a signal. Teal for a buy, red for a sell |
-| Shaded band | Under or over the extreme | The risk zone, between the pattern extreme and the risk level |
-| `BUY 123.45` | Row 3 | Long entry, at that price, on that bar |
-| `SELL 123.45` | Row 3 | Short entry |
-| Dotted red line | At the level | The stop of the trade that is currently open |
-| Dotted green line | At the level | The target of the trade that is currently open |
-| Red `x` | At the stop price | The open trade was stopped out here |
-| Green square | At the target price | The open trade reached TDST here |
-| Corner panel | Top right | Position, entry, stop, target, and open result in R multiples |
+| What you see | Meaning |
+| --- | --- |
+| `S8`, `S9` | The setup is nearly done / done |
+| Teal or red triangle | Setup 9 completed |
+| Diamond | That setup is perfected |
+| `C11`, `C12`, `C+` | Countdown almost done, or deferred |
+| `CD13` tag | Countdown finished — the exhaustion signal |
+| `BUY` / `SELL` | Where the trade would be taken |
+| Dashed line | TDST support or resistance |
+| Solid line / shaded band | Risk level and risk zone |
+| Dotted red / green lines | Stop and target of an open trade |
 
-Two `x` marks mean different things, and the difference is where they sit. A
-faded teal or red `x` hugging the bar is bookkeeping: a risk level was taken
-out. A solid red `x` floating at the stop price closes a trade that the script
-had marked as open.
+Everything about buying is below the bars in teal, everything about selling is
+above them in red.
 
-A buy 9 or 13 on its own says selling pressure is exhausted; it is not an order,
-which is exactly why the entry rules add a confirmation step. Confluence
-matters too: a 13 landing on TDST, on a prior swing, or on an oversold DeMarker
-reading is worth far more than one in mid-air.
+**Full mode** adds the earlier counts (`S1`…`S7`, `C1`…`C10`) and the setup
+extension past nine (`S10`…`S18`). Setup and countdown stay written differently
+(`S` vs `C`, or circled digits) so they cannot be confused. The rest of the
+marks are the same in every mode:
+
+| Mark | Meaning |
+| --- | --- |
+| `9-13-9` tag | A second chance after a completed 13 |
+| `R` | Countdown recycled, starts again |
+| Faded `x` on a bar | A risk level was violated |
+| Solid red `x` at the stop | The open trade was stopped out |
+| Green square at the target | The open trade reached TDST |
+| Corner panel | Position, entry, stop, target, open R |
 
 ## TD Sequential (`demark_td_sequential.pine`)
 
