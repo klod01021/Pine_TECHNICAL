@@ -62,19 +62,31 @@ cancelOnTDST = input.bool(false, "Cancel countdown on a TDST break", group = GC,
                           tooltip = "A buy countdown is cancelled by a close above TDST resistance, a sell countdown by a close below TDST support.")
 recycle      = input.bool(true, "Recycle countdown on a new same-direction setup", group = GC)
 
-showTrades  = input.bool(true, "Show buy / sell entries on a 13", group = GE)
-entryStyle  = input.string("Conservative", "Entry timing", options = ["Aggressive", "Conservative"], group = GE,
-                             tooltip = "Aggressive takes the close of the thirteen. Conservative waits for the first close beyond the close four bars earlier, which is DeMark's way of avoiding a recycle.")
-flipWindow  = input.int(12, "Bars to wait for confirmation", minval = 1, maxval = 60, group = GE)
+showTrades  = input.bool(true, "Show buy / sell entries", group = GE)
+frequency   = input.string("More signals", "How many signals", options = ["DeMark strict", "More signals", "Maximum signals", "Custom"], group = GE,
+                             tooltip = "DeMark strict: thirteens only, wait for a price flip. More signals: perfected nines as well, and longer to confirm. Maximum signals: nines whether perfected or not, taken on the signal bar itself. Custom: use the settings below. The looser the setting the more trades you get and the worse the average one is.")
+trade13     = input.bool(true, "Custom: trade countdown 13s", group = GE)
+trade9      = input.bool(false, "Custom: trade setup 9s", group = GE)
+entryStyle  = input.string("Conservative", "Custom: entry timing", options = ["Aggressive", "Conservative"], group = GE,
+                             tooltip = "Aggressive takes the close of the signal bar. Conservative waits for the first close beyond the close four bars earlier, which is DeMark's way of avoiding a recycle.")
+confirmRule = input.string("Price flip", "Custom: confirmation", options = ["Price flip", "Any close in direction"], group = GE)
+flipWindow  = input.int(12, "Custom: bars to wait for confirmation", minval = 1, maxval = 60, group = GE)
 showStopTgt = input.bool(true, "Draw stop and target while in a trade", group = GE)
 
 showTDST     = input.bool(true, "Show TDST support / resistance", group = GT)
 tdstStyleIn  = input.string("Dashed", "Line style", options = ["Solid", "Dashed", "Dotted"], group = GT)
 tdstWidth    = input.int(1, "Line width", minval = 1, maxval = 4, group = GT)
 
+setupStyle   = input.string("Prefixed S", "Setup count style", options = ["Plain", "Prefixed S", "Circled"], group = GA,
+                             tooltip = "How the setup counts are written, so they cannot be mistaken for countdown counts.")
+cdStyle      = input.string("Prefixed C", "Countdown count style", options = ["Plain", "Prefixed C", "Circled"], group = GA)
 bullCol      = input.color(#26a69a, "Buy side colour", group = GA)
 bearCol      = input.color(#ef5350, "Sell side colour", group = GA)
-offsetMult   = input.float(0.4, "Label offset (ATR multiple)", minval = 0, step = 0.05, group = GA)
+cdBullCol    = input.color(#26a69a, "Buy countdown count colour", group = GA)
+cdBearCol    = input.color(#ef5350, "Sell countdown count colour", group = GA)
+setupOff     = input.float(0.4, "Setup count row (ATR)", minval = 0, step = 0.1, group = GA)
+cdOff        = input.float(1.2, "Countdown count row (ATR)", minval = 0, step = 0.1, group = GA)
+entryOff     = input.float(2.1, "Entry label row (ATR)", minval = 0, step = 0.1, group = GA)
 
 tdstStyle = tdstStyleIn == "Solid" ? line.style_solid : tdstStyleIn == "Dashed" ? line.style_dashed : line.style_dotted
 
@@ -84,14 +96,27 @@ prevClose = nz(close[1], close)
 trueHigh  = math.max(high, prevClose)
 trueLow   = math.min(low, prevClose)
 
-hh9    = ta.highest(trueHigh, 9)
-ll9    = ta.lowest(trueLow, 9)
-atrOff = nz(ta.atr(14), high - low) * offsetMult
+trueRange = trueHigh - trueLow
+hh9       = ta.highest(trueHigh, 9)
+ll9       = ta.lowest(trueLow, 9)
+atr14     = nz(ta.atr(14), high - low)
 
-setupBuyY  = low - atrOff
-setupSellY = high + atrOff
-cdBuyY     = low - atrOff * 2.2
-cdSellY    = high + atrOff * 2.2
+setupBuyY  = low - atr14 * setupOff
+setupSellY = high + atr14 * setupOff
+cdBuyY     = low - atr14 * cdOff
+cdSellY    = high + atr14 * cdOff
+entryBuyY  = low - atr14 * entryOff
+entrySellY = high + atr14 * entryOff
+
+var array<string> CIRCLED = array.from("①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩", "⑪", "⑫", "⑬", "⑭", "⑮", "⑯", "⑰", "⑱", "⑲", "⑳")
+
+f_count(int n, string style, string prefix, array<string> glyphs) =>
+    string out = str.tostring(n)
+    if style == "Circled" and n >= 1 and n <= 20
+        out := array.get(glyphs, n - 1)
+    else if style != "Plain"
+        out := prefix + out
+    out
 
 // ------------------------------------------------------------ TD Price Flip --
 ready    = bar_index >= 5
@@ -109,6 +134,19 @@ sellSetup := bullFlip ? 1 : sellSetup > 0 and sellSetup < 9 and sellCond ? sellS
 
 buySetupDone  = buySetup == 9
 sellSetupDone = sellSetup == 9
+
+// Extremes of the running setup, used for the risk level of a nine.
+var float buySetupLo    = na
+var float buySetupLoTR  = na
+var float sellSetupHi   = na
+var float sellSetupHiTR = na
+
+if buySetup == 1 or (buySetup > 1 and trueLow < buySetupLo)
+    buySetupLo   := trueLow
+    buySetupLoTR := trueRange
+if sellSetup == 1 or (sellSetup > 1 and trueHigh > sellSetupHi)
+    sellSetupHi   := trueHigh
+    sellSetupHiTR := trueRange
 
 // --------------------------------------------------------------- perfection --
 var float buyPerfLevel  = na
@@ -277,8 +315,24 @@ if sellCDOn and cdSellCond
 // the conservative entry on the first price flip after it. The stop is the risk
 // level (extreme of the countdown less that bar's true range) and the objective
 // is TDST.
-buySigStop  = buyCD13 ? buyCDLo - buyCDLoTR : na
-sellSigStop = sellCD13 ? sellCDHi + sellCDHiTR : na
+// The frequency preset overrides the custom settings below it. Looser settings
+// trade more often and take worse entries; that is the trade, not a bug.
+strictF = frequency == "DeMark strict"
+moreF   = frequency == "More signals"
+maxF    = frequency == "Maximum signals"
+loose   = moreF or maxF
+
+eTrade13  = loose or strictF ? true : trade13
+eTrade9   = loose ? true : strictF ? false : trade9
+eAggr     = maxF ? true : strictF or moreF ? false : entryStyle == "Aggressive"
+eFlipWin  = strictF ? 12 : loose ? 24 : flipWindow
+eAnyClose = maxF ? true : strictF or moreF ? false : confirmRule == "Any close in direction"
+
+buy9Ok  = buySetupDone and (buyPerfected or maxF)
+sell9Ok = sellSetupDone and (sellPerfected or maxF)
+
+buySigStop  = (eTrade13 and buyCD13) ? buyCDLo - buyCDLoTR : (eTrade9 and buy9Ok) ? buySetupLo - buySetupLoTR : na
+sellSigStop = (eTrade13 and sellCD13) ? sellCDHi + sellCDHiTR : (eTrade9 and sell9Ok) ? sellSetupHi + sellSetupHiTR : na
 
 var int   pos       = 0
 var float posEntry  = na
@@ -315,7 +369,10 @@ else if pos == -1
 float longStop  = na
 float shortStop = na
 
-if entryStyle == "Aggressive"
+confirmLong  = eAnyClose ? close > close[1] : close > close[4]
+confirmShort = eAnyClose ? close < close[1] : close < close[4]
+
+if eAggr
     if not na(buySigStop)
         longStop := buySigStop
     if not na(sellSigStop)
@@ -326,9 +383,9 @@ else
         pendBuyBar  := bar_index
         pendBuyStop := buySigStop
     else if pendBuy and bar_index > pendBuyBar
-        if low < pendBuyStop or bar_index - pendBuyBar > flipWindow
+        if low < pendBuyStop or bar_index - pendBuyBar > eFlipWin
             pendBuy := false
-        else if close > close[4]
+        else if confirmLong
             longStop := pendBuyStop
             pendBuy  := false
     if not na(sellSigStop)
@@ -336,9 +393,9 @@ else
         pendSellBar  := bar_index
         pendSellStop := sellSigStop
     else if pendSell and bar_index > pendSellBar
-        if high > pendSellStop or bar_index - pendSellBar > flipWindow
+        if high > pendSellStop or bar_index - pendSellBar > eFlipWin
             pendSell := false
-        else if close < close[4]
+        else if confirmShort
             shortStop := pendSellStop
             pendSell  := false
 
@@ -371,32 +428,33 @@ if showStopTgt and pos != 0
         line.set_x2(tgtLn, bar_index)
 
 if showTrades and goLong
-    label.new(bar_index, low - atrOff * 3.4, "BUY " + str.tostring(posEntry, format.mintick), style = label.style_label_up, color = bullCol, textcolor = color.white, size = size.small)
+    label.new(bar_index, entryBuyY, "BUY " + str.tostring(posEntry, format.mintick), style = label.style_label_up, color = bullCol, textcolor = color.white, size = size.small)
 if showTrades and goShort
-    label.new(bar_index, high + atrOff * 3.4, "SELL " + str.tostring(posEntry, format.mintick), style = label.style_label_down, color = bearCol, textcolor = color.white, size = size.small)
+    label.new(bar_index, entrySellY, "SELL " + str.tostring(posEntry, format.mintick), style = label.style_label_down, color = bearCol, textcolor = color.white, size = size.small)
 
 plotshape((showTrades and exitStop) ? posStop : na, "Stopped out", shape.xcross, location.absolute, color.new(color.red, 20), size = size.tiny)
 plotshape((showTrades and exitTgt) ? posTarget : na, "Target reached", shape.square, location.absolute, color.new(color.green, 20), size = size.tiny)
 
 // ------------------------------------------------------------------ plotting --
 if showSetup and buySetup >= minCount
-    label.new(bar_index, setupBuyY, str.tostring(buySetup), style = label.style_none, textcolor = buySetupDone ? bullCol : color.new(bullCol, 30), size = size.tiny)
+    label.new(bar_index, setupBuyY, f_count(buySetup, setupStyle, "S", CIRCLED), style = label.style_none, textcolor = buySetupDone ? bullCol : color.new(bullCol, 30), size = size.tiny)
 
 if showSetup and sellSetup >= minCount
-    label.new(bar_index, setupSellY, str.tostring(sellSetup), style = label.style_none, textcolor = sellSetupDone ? bearCol : color.new(bearCol, 30), size = size.tiny)
+    label.new(bar_index, setupSellY, f_count(sellSetup, setupStyle, "S", CIRCLED), style = label.style_none, textcolor = sellSetupDone ? bearCol : color.new(bearCol, 30), size = size.tiny)
 
 // 13 itself is drawn by the plotshape below, so it is skipped here.
 if showCD and buyCDPrint > 0 and not buyCD13
-    label.new(bar_index, cdBuyY, str.tostring(buyCDPrint), style = label.style_none, textcolor = color.new(bullCol, 30), size = size.tiny)
+    label.new(bar_index, cdBuyY, f_count(buyCDPrint, cdStyle, "C", CIRCLED), style = label.style_none, textcolor = color.new(cdBullCol, 20), size = size.tiny)
 
 if showCD and sellCDPrint > 0 and not sellCD13
-    label.new(bar_index, cdSellY, str.tostring(sellCDPrint), style = label.style_none, textcolor = color.new(bearCol, 30), size = size.tiny)
+    label.new(bar_index, cdSellY, f_count(sellCDPrint, cdStyle, "C", CIRCLED), style = label.style_none, textcolor = color.new(cdBearCol, 20), size = size.tiny)
 
+deferTxt = cdStyle == "Plain" ? "+" : "C+"
 if showCD and buyCDDefer
-    label.new(bar_index, cdBuyY, "+", style = label.style_none, textcolor = color.new(bullCol, 30), size = size.tiny)
+    label.new(bar_index, cdBuyY, deferTxt, style = label.style_none, textcolor = color.new(cdBullCol, 20), size = size.tiny)
 
 if showCD and sellCDDefer
-    label.new(bar_index, cdSellY, "+", style = label.style_none, textcolor = color.new(bearCol, 30), size = size.tiny)
+    label.new(bar_index, cdSellY, deferTxt, style = label.style_none, textcolor = color.new(cdBearCol, 20), size = size.tiny)
 
 plotshape(showSetup and buySetupDone, "Buy setup 9", shape.triangleup, location.belowbar, bullCol, size = size.tiny)
 plotshape(showSetup and sellSetupDone, "Sell setup 9", shape.triangledown, location.abovebar, bearCol, size = size.tiny)

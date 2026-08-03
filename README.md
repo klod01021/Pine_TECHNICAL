@@ -134,6 +134,23 @@ The counts say a trend is exhausted; they do not say where to trade. These
 markers apply DeMark's own entry rules to the counts and put a `BUY` or `SELL`
 label, with the price, on the bar where the trade would be taken.
 
+**How many signals.** One dropdown sets how permissive the whole thing is, and
+it overrides the individual settings below it:
+
+| Setting | What it trades | Roughly how often |
+| --- | --- | --- |
+| DeMark strict | Thirteens only, confirmation required, every filter on | Rarest, best average signal |
+| More signals (default) | Also nines and 9-13-9 counts, reward-to-risk requirement halved, twice as long to confirm | About three times as many |
+| Maximum signals | All of the above entered on the signal bar itself, no reward-to-risk test, no setup filters, unperfected nines allowed, confirmation not required | About ten times as many |
+| Custom | Whatever you set in the inputs underneath | Your call |
+
+On 6000 bars of synthetic data those three levels produced 18, 51 and 183
+entries, with the share that reached their target falling from 44% to 40% to
+25%. Those numbers say nothing about real profitability, but the shape of the
+trade-off is the point: every step you loosen buys more signals with worse ones.
+If you want still more, switching the countdown to Aggressive produces more
+thirteens in the first place.
+
 **Timing.** DeMark gives two ways into a completed 13:
 
 - *Aggressive*: buy the close of the thirteen.
@@ -181,14 +198,17 @@ so a second signal in the same direction is ignored rather than added to.
 | Risk Levels | On setup 9 / on countdown 13 / shade zone | off / on / on |
 | Risk Levels | Violated by: Intrabar or Close | Intrabar |
 | Entries | Show buy / sell entries | on |
-| Entries | Trade these signals: Countdown 13, Setup 9, Both | Countdown 13 |
-| Entries | Entry timing: Aggressive or Conservative | Conservative |
-| Entries | Bars to wait for confirmation | 12 |
-| Entries | Filter setup 9 entries, TDST proximity (ATR) | on, 1.0 |
-| Entries | Minimum reward to risk | 1.5 |
+| Entries | How many signals: strict, more, maximum, custom | More signals |
+| Entries | Custom: trade 13s / 9s / 9-13-9 counts | on / off / off |
+| Entries | Custom: entry timing, confirmation rule | Conservative, price flip |
+| Entries | Custom: bars to wait for confirmation | 12 |
+| Entries | Custom: filter setup 9 entries, TDST proximity (ATR) | on, 1.0 |
+| Entries | Custom: minimum reward to risk | 1.5 |
 | Entries | Draw stop and target, show trade panel | on, on |
 | TDST | Show levels, line style, width | on, dashed, 1 |
-| Appearance | Buy and sell colours, label offset (ATR multiple) | teal, red, 0.4 |
+| Appearance | Setup and countdown count style | Prefixed S, Prefixed C |
+| Appearance | Buy and sell colours, countdown count colours | teal, red |
+| Appearance | Setup / countdown / entry row offsets (ATR) | 0.4 / 1.2 / 2.1 |
 
 ### Chart legend
 
@@ -197,14 +217,20 @@ with selling sits **above** them in red, and the marks are stacked in rows:
 setup counts closest to the bar, countdown counts further out, entry labels
 furthest out.
 
+Setup counts and countdown counts are both numbered 1 upwards, so they are
+written differently to keep them apart: setups are `S1`…`S9` and countdowns are
+`C1`…`C13` by default. You can switch either to plain digits or to circled
+digits (①②③) in the Appearance group, give the countdown counts their own
+colour, and move the three rows independently.
+
 | Mark | Where | Meaning |
 | --- | --- | --- |
-| `1` … `9` | Row 1, dimmed | Setup count. Bar 9 is drawn in full colour |
-| `10` … `18` | Row 1, dimmed | The setup running past nine. 18 is drawn in full colour |
+| `S1` … `S9` | Row 1, dimmed | Setup count. `S9` is drawn in full colour |
+| `S10` … `S18` | Row 1, dimmed | The setup running past nine. `S18` is in full colour |
 | Small triangle | Against the bar | The setup completed on this bar |
 | Diamond | Against the bar | The setup is perfected. May print after bar 9 if perfection was deferred |
-| `1` … `12` | Row 2, dimmed | Countdown count. With Combo, counts 1 to 9 appear retroactively on the setup bars |
-| `+` | Row 2 | The bar counted but failed the bar 13 qualifier, so the 13 is deferred |
+| `C1` … `C12` | Row 2 | Countdown count. With Combo, `C1` to `C9` appear retroactively on the setup bars |
+| `C+` | Row 2 | The bar counted but failed the bar 13 qualifier, so the 13 is deferred |
 | `13` in a solid tag | Against the bar | Countdown complete. This is the exhaustion signal |
 | `9-13-9` in a solid tag | Against the bar | A fresh qualified setup after a 13, a second chance at the same trade |
 | `R` | Row 2 | The countdown was recycled and starts again from zero |
@@ -238,10 +264,11 @@ shorter script, without Combo, extended setups, the recycle qualifiers or
 than the book's true low/high test. Useful if you want to read the method in a
 couple of hundred lines, or want a plain 9-13 chart.
 
-It marks buy and sell entries too, but only from a completed 13, with the same
-aggressive or conservative timing, the risk level as the stop and TDST as the
-target. Setup nine entries, the reward-to-risk filter and the trade panel are
-only in `demark_9_13.pine`.
+It marks buy and sell entries too, from a completed 13 or a setup 9, with the
+same signal frequency dropdown, the same aggressive or conservative timing, the
+risk level as the stop and TDST as the target. The setup filters, the
+reward-to-risk test, 9-13-9 entries and the trade panel are only in
+`demark_9_13.pine`.
 
 The legend above applies here as well, minus the marks for the features it does
 not have: no `R`, no `9-13-9`, no counts past nine, and no risk level lines,
