@@ -1,0 +1,777 @@
+//@version=6
+// =============================================================================
+//  DeMark 9-13  -  Sequential + Combo, TDST, Risk Levels and Zones
+//
+//  An independent, open implementation of the studies Tom DeMark published in
+//  "DeMark Indicators" (Perl, Bloomberg Press) and "The New Science of
+//  Technical Analysis". It is not affiliated with, endorsed by or derived from
+//  DeMARK Analytics / Market Studies LLC, whose licensed DeMARK 9-13 product is
+//  closed source. Trademarks belong to their owners.
+//
+//  What this script adds over the plain TD Sequential script in this repo:
+//    - Combo countdown (Version I and Version II) as an alternative to the
+//      Sequential countdown, including the optional termination count
+//    - Setups that extend past bar 9, as DeMark describes, up to 18 and beyond
+//    - The book's countdown cancellation filters (opposite setup, true low
+//      above TDST resistance) and recycle qualifiers I and II with the 1.618
+//      true range test, plus the R marker on an 18 bar setup
+//    - TD Risk Levels and risk zones for both setup and countdown signals
+//    - Qualified 9-13-9 counts
+//    - Buy and sell markers built on DeMark's own entry rules: the aggressive
+//      entry on the close of a thirteen or the conservative entry on the first
+//      price flip after it, with the risk level as the stop, TDST as the
+//      objective, and Perl's filters for trading a setup nine
+// =============================================================================
+
+indicator("DeMark 9-13 (Sequential + Combo)", "DM 9-13", overlay = true,
+          max_labels_count = 500, max_lines_count = 500, max_boxes_count = 100, max_bars_back = 100)
+
+// ------------------------------------------------------------------- inputs --
+GD = "Chart display"
+GM = "Method"
+GS = "TD Setup"
+GC = "TD Countdown"
+GR = "Risk Levels"
+GE = "Entries"
+GT = "TDST"
+GA = "Appearance"
+
+chartMode = input.string("Classic", "How much to show", options = ["Classic", "Full", "Simple", "Signals only", "Custom"], group = GD,
+                          tooltip = "Classic (default): the usual DeMark look - plain 1-9 setup counts close to the bars, plain 1-13 countdown counts one row out, TDST lines, no buy/sell labels or risk zones. Full: same counts plus our extras. Simple: only late counts. Signals only: markers and entries, no numbers.")
+
+method     = input.string("Sequential", "Countdown method", options = ["Sequential", "Combo V1", "Combo V2"], group = GM,
+                          tooltip = "Sequential counts closes beyond the low/high two bars earlier. Combo adds DeMark's stricter conditions and starts counting from bar 1 of the setup. Version II relaxes counts 11 to 13 to successively lower/higher closes.")
+aggressive = input.bool(false, "Aggressive countdown", group = GM,
+                         tooltip = "Compare the low/high of the bar with the low/high two bars earlier instead of the close.")
+
+showSetup    = input.bool(true, "Custom: show setup counts", group = GS)
+minCount     = input.int(1, "Custom: start plotting setup counts at", minval = 1, maxval = 9, group = GS)
+showExtended = input.bool(false, "Custom: show setup counts past 9", group = GS,
+                          tooltip = "DeMark's setup does not stop at nine, it runs until the sequence breaks. The script always tracks the extension because the recycle rules depend on it; this only controls whether counts above nine are drawn.")
+minCDCount   = input.int(1, "Custom: start plotting countdown counts at", minval = 1, maxval = 13, group = GC)
+showPerf    = input.bool(true, "Mark perfected setups", group = GS)
+perfWindow  = input.int(8, "Bars allowed for deferred perfection", minval = 0, maxval = 50, group = GS)
+
+showCD       = input.bool(true, "Custom: show countdown counts", group = GC)
+useQualifier = input.bool(true, "Apply the bar 13 qualifier (Sequential)", group = GC)
+termination  = input.bool(false, "Termination count (Combo)", group = GC,
+                          tooltip = "Lets the final Combo count be satisfied by either the close or the open of the bar.")
+cancelOpp    = input.bool(true, "Cancel on an opposite setup", group = GC)
+cancelTDST   = input.bool(true, "Cancel on a true low/high beyond TDST", group = GC,
+                          tooltip = "A buy countdown is erased when a bar posts a true low above TDST resistance, a sell countdown when a bar posts a true high below TDST support.")
+recycleMode  = input.string("DeMark qualifiers", "Recycle rule", options = ["DeMark qualifiers", "Always", "Never"], group = GC,
+                             tooltip = "Qualifier I recycles when the new setup's true range is at least as large as the previous one but smaller than 1.618 times it. Qualifier II keeps the countdown when the new setup sits inside the previous setup's range.")
+
+showSetupRisk = input.bool(false, "Risk level on setup 9", group = GR)
+showCDRisk    = input.bool(false, "Risk level on countdown 13", group = GR)
+showZone      = input.bool(false, "Shade the risk zone", group = GR,
+                           tooltip = "Shades the area between the pattern extreme and the risk level.")
+violationMode = input.string("Intrabar", "Risk level violated by", options = ["Intrabar", "Close"], group = GR)
+
+showTrades      = input.bool(false, "Show buy / sell entries", group = GE)
+frequency       = input.string("More signals", "How many signals", options = ["DeMark strict", "More signals", "Maximum signals", "Custom"], group = GE,
+                                 tooltip = "DeMark strict: thirteens only, wait for confirmation, keep every filter. More signals: also trade nines and 9-13-9 counts, halve the reward-to-risk requirement, wait longer for confirmation. Maximum signals: everything, entered on the signal bar itself with no reward-to-risk or setup filter at all. Custom: use the settings below. The looser the setting the more trades you get and the worse the average one is.")
+trade13         = input.bool(true, "Custom: trade countdown 13s", group = GE)
+trade9          = input.bool(false, "Custom: trade setup 9s", group = GE)
+trade913        = input.bool(false, "Custom: trade 9-13-9 counts", group = GE)
+entryStyle      = input.string("Conservative", "Custom: entry timing", options = ["Aggressive", "Conservative"], group = GE,
+                                 tooltip = "Aggressive takes the close of the signal bar. Conservative waits for the first close beyond the close four bars earlier, which is how DeMark avoids being caught by a recycle.")
+confirmRule     = input.string("Price flip", "Custom: confirmation", options = ["Price flip", "Any close in direction"], group = GE,
+                                 tooltip = "A price flip is a close beyond the close four bars earlier, which is DeMark's rule. Any close in direction only needs a close beyond the previous one, which confirms sooner and more often.")
+flipWindow      = input.int(12, "Custom: bars to wait for confirmation", minval = 1, maxval = 60, group = GE,
+                             tooltip = "DeMark expects a meaningful response within twelve bars. After that the pending signal is dropped.")
+useSetupFilters = input.bool(true, "Custom: filter setup 9 entries", group = GE,
+                              tooltip = "Perl's rules for trading a setup: it must be perfected, no bar in it may close beyond TDST, and bar nine must close near TDST.")
+proxATR         = input.float(1.0, "TDST proximity for setup entries (ATR)", minval = 0.1, step = 0.1, group = GE)
+minRR           = input.float(1.5, "Custom: minimum reward to risk", minval = 0, step = 0.1, group = GE,
+                               tooltip = "DeMark's filter: the distance from the entry to TDST should be at least 1.5 times the distance to the risk level. Set to 0 to take every signal.")
+showStopTgt     = input.bool(false, "Draw stop and target while in a trade", group = GE)
+showPanel       = input.bool(false, "Show trade panel", group = GE)
+
+showTDST  = input.bool(true, "Show TDST support / resistance", group = GT)
+tdstWidth = input.int(1, "Line width", minval = 1, maxval = 4, group = GT)
+
+bullCol   = input.color(#00c853, "Buy side colour", group = GA)
+bearCol   = input.color(#ff1744, "Sell side colour", group = GA)
+cdBullCol = input.color(#69f0ae, "Buy countdown count colour", group = GA)
+cdBearCol = input.color(#ff8a80, "Sell countdown count colour", group = GA)
+entryOff  = input.float(1.6, "Entry label row (ATR)", minval = 0, step = 0.1, group = GA)
+
+isCombo = method != "Sequential"
+comboV2 = method == "Combo V2"
+
+// Chart look. Classic matches the usual DeMark Sequential chart: plain digits,
+// setup close to the bar, countdown one row out, TDST on, trade clutter off.
+classicMode = chartMode == "Classic"
+signalsOnly = chartMode == "Signals only"
+simpleMode  = chartMode == "Simple"
+fullMode    = chartMode == "Full"
+eShowSetup  = signalsOnly ? false : (classicMode or simpleMode or fullMode ? true : showSetup)
+eShowCD     = signalsOnly ? false : (classicMode or simpleMode or fullMode ? true : showCD)
+eMinSetup   = simpleMode ? 8 : (classicMode or fullMode ? 1 : minCount)
+eMinCD      = simpleMode ? 11 : (classicMode or fullMode ? 1 : minCDCount)
+eShowExt    = classicMode or simpleMode or signalsOnly ? false : (fullMode ? true : showExtended)
+eShow913    = not classicMode
+eShowRiskX  = not classicMode
+
+// ---------------------------------------------------------------- utilities --
+pc = nz(close[1], close)
+th = math.max(high, pc)
+tl = math.min(low, pc)
+tr = th - tl
+
+atr14     = nz(ta.atr(14), high - low)
+eEntryOff = classicMode ? 1.6 : entryOff
+entryBuyY  = low - atr14 * eEntryOff
+entrySellY = high + atr14 * eEntryOff
+
+// ------------------------------------------------------------ TD Price Flip --
+ready    = bar_index >= 5
+buyCond  = ready and close < close[4]
+sellCond = ready and close > close[4]
+bearFlip = buyCond and close[1] > close[5]
+bullFlip = sellCond and close[1] < close[5]
+
+// ----------------------------------------------------------------- TD Setup --
+// The count keeps running past nine until the sequence is interrupted.
+var int buySetup  = 0
+var int sellSetup = 0
+
+buySetup  := bearFlip ? 1 : buySetup > 0 and buyCond ? buySetup + 1 : 0
+sellSetup := bullFlip ? 1 : sellSetup > 0 and sellCond ? sellSetup + 1 : 0
+
+var float buySetupHi   = na
+var float buySetupLo   = na
+var float buySetupLoTR = na
+var float buySetupCHi  = na
+var float buySetupCLo  = na
+var int   buySetupStart = na
+
+var float sellSetupHi   = na
+var float sellSetupLo   = na
+var float sellSetupHiTR = na
+var float sellSetupCHi  = na
+var float sellSetupCLo  = na
+var int   sellSetupStart = na
+
+if buySetup == 1
+    buySetupHi    := th
+    buySetupLo    := tl
+    buySetupLoTR  := tr
+    buySetupCHi   := close
+    buySetupCLo   := close
+    buySetupStart := bar_index
+else if buySetup > 1
+    buySetupHi  := math.max(buySetupHi, th)
+    buySetupCHi := math.max(buySetupCHi, close)
+    buySetupCLo := math.min(buySetupCLo, close)
+    if tl < buySetupLo
+        buySetupLo   := tl
+        buySetupLoTR := tr
+
+if sellSetup == 1
+    sellSetupHi    := th
+    sellSetupLo    := tl
+    sellSetupHiTR  := tr
+    sellSetupCHi   := close
+    sellSetupCLo   := close
+    sellSetupStart := bar_index
+else if sellSetup > 1
+    sellSetupLo := math.min(sellSetupLo, tl)
+    sellSetupCHi := math.max(sellSetupCHi, close)
+    sellSetupCLo := math.min(sellSetupCLo, close)
+    if th > sellSetupHi
+        sellSetupHi   := th
+        sellSetupHiTR := tr
+
+buy9   = buySetup == 9
+sell9  = sellSetup == 9
+buy18  = buySetup == 18
+sell18 = sellSetup == 18
+buySetupDone  = buy9 or buy18
+sellSetupDone = sell9 or sell18
+
+// --------------------------------------------------------------- perfection --
+var float buyPerfLevel  = na
+var int   buyPerfLeft   = 0
+var float sellPerfLevel = na
+var int   sellPerfLeft  = 0
+
+bool buyPerfected  = false
+bool sellPerfected = false
+
+if buy9
+    buyPerfLevel := math.min(low[2], low[3])
+    if math.min(low, low[1]) <= buyPerfLevel
+        buyPerfected := true
+        buyPerfLeft  := 0
+    else
+        buyPerfLeft := perfWindow
+else if buyPerfLeft > 0
+    if low <= buyPerfLevel
+        buyPerfected := true
+        buyPerfLeft  := 0
+    else
+        buyPerfLeft := buyPerfLeft - 1
+
+if sell9
+    sellPerfLevel := math.max(high[2], high[3])
+    if math.max(high, high[1]) >= sellPerfLevel
+        sellPerfected := true
+        sellPerfLeft  := 0
+    else
+        sellPerfLeft := perfWindow
+else if sellPerfLeft > 0
+    if high >= sellPerfLevel
+        sellPerfected := true
+        sellPerfLeft  := 0
+    else
+        sellPerfLeft := sellPerfLeft - 1
+
+// ------------------------------------------- active setup, TDST, qualifiers --
+var float actBuyHi     = na   // TDST resistance, true high of the active buy setup
+var float actBuyLo     = na
+var float actBuyRange  = na
+var float actSellHi    = na
+var float actSellLo    = na   // TDST support
+var float actSellRange = na
+
+var bool tdstResLive = false
+var bool tdstSupLive = false
+
+// Recycle qualifiers, evaluated against the setup that was active until now.
+bool buyQualI   = false
+bool buyQualII  = false
+bool sellQualI  = false
+bool sellQualII = false
+
+if buy9 and not na(actBuyRange)
+    newRange  = buySetupHi - buySetupLo
+    buyQualI  := newRange >= actBuyRange and newRange < 1.618 * actBuyRange
+    buyQualII := buySetupCHi <= actBuyHi and buySetupCLo >= actBuyLo and buySetupHi <= actBuyHi and buySetupLo >= actBuyLo
+
+if sell9 and not na(actSellRange)
+    newRange   = sellSetupHi - sellSetupLo
+    sellQualI  := newRange >= actSellRange and newRange < 1.618 * actSellRange
+    sellQualII := sellSetupCHi <= actSellHi and sellSetupCLo >= actSellLo and sellSetupHi <= actSellHi and sellSetupLo >= actSellLo
+
+// A setup running at nine or beyond defines the active setup and its TDST level.
+if buySetup >= 9
+    actBuyHi    := buySetupHi
+    actBuyLo    := buySetupLo
+    actBuyRange := buySetupHi - buySetupLo
+    if buy9
+        tdstResLive := true
+
+if sellSetup >= 9
+    actSellHi    := sellSetupHi
+    actSellLo    := sellSetupLo
+    actSellRange := sellSetupHi - sellSetupLo
+    if sell9
+        tdstSupLive := true
+
+resBreak = tdstResLive and close > actBuyHi
+supBreak = tdstSupLive and close < actSellLo
+
+if resBreak
+    tdstResLive := false
+if supBreak
+    tdstSupLive := false
+
+// TDST as plots so the lines stay locked to the candles.
+plot(showTDST and tdstResLive ? actBuyHi : na, "TDST resistance", color = bearCol, style = plot.style_linebr, linewidth = tdstWidth)
+plot(showTDST and tdstSupLive ? actSellLo : na, "TDST support", color = bullCol, style = plot.style_linebr, linewidth = tdstWidth)
+
+// ------------------------------------------------------------- TD Countdown --
+var int   buyCD      = 0
+var int   sellCD     = 0
+var bool  buyCDOn    = false
+var bool  sellCDOn   = false
+var float buyCD8     = na    // close of buy countdown bar 8
+var float sellCD8    = na
+var float buyCDPrev  = na    // close of the previous buy countdown bar (Combo)
+var float sellCDPrev = na
+var float buyCDLo    = na    // lowest true low of the countdown phase
+var float buyCDLoTR  = na
+var float sellCDHi   = na    // highest true high of the countdown phase
+var float sellCDHiTR = na
+
+bool buyCD13     = false
+bool sellCD13    = false
+bool buyCDDefer  = false
+bool sellCDDefer = false
+bool buyRecycle  = false
+bool sellRecycle = false
+bool buySeeded   = false
+bool sellSeeded  = false
+
+// Cancellation: an opposite setup, or a true low/high beyond TDST.
+if cancelOpp and sellSetupDone and buyCDOn
+    buyCDOn := false
+    buyCD   := 0
+if cancelOpp and buySetupDone and sellCDOn
+    sellCDOn := false
+    sellCD   := 0
+if cancelTDST and buyCDOn and not na(actBuyHi) and tl > actBuyHi
+    buyCDOn := false
+    buyCD   := 0
+if cancelTDST and sellCDOn and not na(actSellLo) and th < actSellLo
+    sellCDOn := false
+    sellCD   := 0
+
+// Recycling. Qualifier II keeps the running countdown, qualifier I restarts it,
+// and a setup that stretches to eighteen bars always restarts it (the R mark).
+if buyCDOn and buySetupDone
+    buyRecycle := recycleMode == "Never" ? false : recycleMode == "Always" or buy18 ? true : buyQualI and not buyQualII
+if sellCDOn and sellSetupDone
+    sellRecycle := recycleMode == "Never" ? false : recycleMode == "Always" or sell18 ? true : sellQualI and not sellQualII
+
+armBuy  = buySetupDone and (not buyCDOn or buyRecycle)
+armSell = sellSetupDone and (not sellCDOn or sellRecycle)
+
+if armBuy
+    buyCDOn   := true
+    buyCD     := 0
+    buyCD8    := na
+    buyCDPrev := na
+    buyCDLo   := na
+    buyCDLoTR := na
+if armSell
+    sellCDOn   := true
+    sellCD     := 0
+    sellCD8    := na
+    sellCDPrev := na
+    sellCDHi   := na
+    sellCDHiTR := na
+
+// Combo starts counting at bar one of the setup, so the nine bars just gone by
+// are walked through as soon as the setup completes.
+if isCombo and armBuy
+    buySeeded := true
+    for k = 0 to 8
+        i   = 8 - k
+        c0  = close[i]
+        l0  = low[i]
+        pc0 = close[i + 1]
+        tl0 = math.min(l0, pc0)
+        th0 = math.max(high[i], pc0)
+        if na(buyCDLo) or tl0 < buyCDLo
+            buyCDLo   := tl0
+            buyCDLoTR := th0 - tl0
+        // Nine bars can only ever produce nine counts, so no 13 can appear here.
+        base = aggressive ? l0 <= low[i + 2] : c0 <= low[i + 2]
+        seq  = na(buyCDPrev) or c0 < buyCDPrev
+        if base and l0 < low[i + 1] and c0 < pc0 and seq
+            buyCD     := buyCD + 1
+            buyCDPrev := c0
+            if buyCD == 8
+                buyCD8 := c0
+
+if isCombo and armSell
+    sellSeeded := true
+    for k = 0 to 8
+        i   = 8 - k
+        c0  = close[i]
+        h0  = high[i]
+        pc0 = close[i + 1]
+        th0 = math.max(h0, pc0)
+        tl0 = math.min(low[i], pc0)
+        if na(sellCDHi) or th0 > sellCDHi
+            sellCDHi   := th0
+            sellCDHiTR := th0 - tl0
+        base = aggressive ? h0 >= high[i + 2] : c0 >= high[i + 2]
+        seq  = na(sellCDPrev) or c0 > sellCDPrev
+        if base and h0 > high[i + 1] and c0 > pc0 and seq
+            sellCD     := sellCD + 1
+            sellCDPrev := c0
+            if sellCD == 8
+                sellCD8 := c0
+
+// The extreme of the countdown phase counts every bar, numbered or not.
+if buyCDOn and not buySeeded
+    if na(buyCDLo) or tl < buyCDLo
+        buyCDLo   := tl
+        buyCDLoTR := tr
+if sellCDOn and not sellSeeded
+    if na(sellCDHi) or th > sellCDHi
+        sellCDHi   := th
+        sellCDHiTR := tr
+
+int buyCDPrint  = 0
+int sellCDPrint = 0
+
+if buyCDOn and not buySeeded and buyCD < 13
+    last  = buyCD == 12 and isCombo and termination
+    px    = last ? math.min(close, open) : close
+    base  = aggressive ? low <= low[2] : px <= low[2]
+    extra = low < low[1] and px < close[1]
+    seq   = na(buyCDPrev) or px < buyCDPrev
+    ok    = isCombo ? (comboV2 and buyCD >= 10 ? seq : base and extra and seq) : base
+    if ok
+        if not isCombo and buyCD == 12 and useQualifier and not na(buyCD8) and low > buyCD8
+            buyCDDefer := true
+        else
+            buyCD      := buyCD + 1
+            buyCDPrev  := close
+            buyCDPrint := buyCD
+            if buyCD == 8
+                buyCD8 := close
+            if buyCD == 13
+                buyCD13 := true
+
+if sellCDOn and not sellSeeded and sellCD < 13
+    last  = sellCD == 12 and isCombo and termination
+    px    = last ? math.max(close, open) : close
+    base  = aggressive ? high >= high[2] : px >= high[2]
+    extra = high > high[1] and px > close[1]
+    seq   = na(sellCDPrev) or px > sellCDPrev
+    ok    = isCombo ? (comboV2 and sellCD >= 10 ? seq : base and extra and seq) : base
+    if ok
+        if not isCombo and sellCD == 12 and useQualifier and not na(sellCD8) and high < sellCD8
+            sellCDDefer := true
+        else
+            sellCD      := sellCD + 1
+            sellCDPrev  := close
+            sellCDPrint := sellCD
+            if sellCD == 8
+                sellCD8 := close
+            if sellCD == 13
+                sellCD13 := true
+
+if buyCD13
+    buyCDOn := false
+if sellCD13
+    sellCDOn := false
+
+// --------------------------------------------------------------- 9-13-9 count --
+var int  buy13Bar    = na
+var int  sell13Bar   = na
+var bool buy913Armed = false
+var bool sell913Armed = false
+
+bool buy913  = false
+bool sell913 = false
+
+if buy913Armed and sellSetupDone
+    buy913Armed := false
+if sell913Armed and buySetupDone
+    sell913Armed := false
+
+if buy9 and buy913Armed and buySetupStart > buy13Bar
+    buy913 := true
+    buy913Armed := false
+if sell9 and sell913Armed and sellSetupStart > sell13Bar
+    sell913 := true
+    sell913Armed := false
+
+if buyCD13
+    buy13Bar    := bar_index
+    buy913Armed := true
+if sellCD13
+    sell13Bar    := bar_index
+    sell913Armed := true
+
+// ------------------------------------------------------------- risk levels ---
+var float buyRisk    = na
+var float sellRisk   = na
+var bool  buyRiskOn  = false
+var bool  sellRiskOn = false
+var box   buyRiskBx  = na
+var box   sellRiskBx = na
+
+// Every signal carries a risk level, whether or not it is drawn: the extreme
+// true low of the pattern less that bar's true range, and the mirror for sells.
+float buySigExt  = na
+float buySigTR   = na
+float sellSigExt = na
+float sellSigTR  = na
+
+if buyCD13
+    buySigExt := na(buyCDLo) ? buySetupLo : buyCDLo
+    buySigTR  := na(buyCDLo) ? buySetupLoTR : buyCDLoTR
+else if buy9
+    buySigExt := buySetupLo
+    buySigTR  := buySetupLoTR
+
+if sellCD13
+    sellSigExt := na(sellCDHi) ? sellSetupHi : sellCDHi
+    sellSigTR  := na(sellCDHi) ? sellSetupHiTR : sellCDHiTR
+else if sell9
+    sellSigExt := sellSetupHi
+    sellSigTR  := sellSetupHiTR
+
+buySigStop  = buySigExt - buySigTR
+sellSigStop = sellSigExt + sellSigTR
+
+newBuyRisk  = ((showCDRisk and buyCD13) or (showSetupRisk and buy9)) and not na(buySigStop)
+newSellRisk = ((showCDRisk and sellCD13) or (showSetupRisk and sell9)) and not na(sellSigStop)
+
+if newBuyRisk
+    buyRisk   := buySigStop
+    buyRiskOn := true
+    if showZone
+        buyRiskBx := box.new(bar_index, buySigExt, bar_index + 1, buyRisk, border_color = color.new(bullCol, 60), bgcolor = color.new(bullCol, 88))
+
+if newSellRisk
+    sellRisk   := sellSigStop
+    sellRiskOn := true
+    if showZone
+        sellRiskBx := box.new(bar_index, sellRisk, bar_index + 1, sellSigExt, border_color = color.new(bearCol, 60), bgcolor = color.new(bearCol, 88))
+
+buyRiskHit  = buyRiskOn and (violationMode == "Close" ? close < buyRisk : low < buyRisk)
+sellRiskHit = sellRiskOn and (violationMode == "Close" ? close > sellRisk : high > sellRisk)
+
+if buyRiskOn and not na(buyRiskBx)
+    box.set_right(buyRiskBx, bar_index)
+if sellRiskOn and not na(sellRiskBx)
+    box.set_right(sellRiskBx, bar_index)
+
+if buyRiskHit
+    buyRiskOn := false
+if sellRiskHit
+    sellRiskOn := false
+
+// Risk levels as plots so they stay locked to the candles.
+plot(buyRiskOn ? buyRisk : na, "Buy risk", color = bullCol, style = plot.style_linebr, linewidth = 2)
+plot(sellRiskOn ? sellRisk : na, "Sell risk", color = bearCol, style = plot.style_linebr, linewidth = 2)
+
+// -------------------------------------------------------- buy / sell entries --
+// Countdown thirteens are tradable on their own. A setup nine is only worth
+// trading under Perl's conditions: perfected, no bar in the setup closed beyond
+// TDST, and bar nine closing near TDST.
+// The frequency preset overrides the custom settings. Loosening it trades more
+// often and takes worse entries; that is the trade being made, not a bug.
+strictF = frequency == "DeMark strict"
+moreF   = frequency == "More signals"
+maxF    = frequency == "Maximum signals"
+loose   = moreF or maxF
+
+eTrade13   = loose or strictF ? true : trade13
+eTrade9    = loose ? true : strictF ? false : trade9
+eTrade913  = loose ? true : strictF ? false : trade913
+eAggr      = maxF ? true : strictF or moreF ? false : entryStyle == "Aggressive"
+eFilters   = maxF ? false : strictF or moreF ? true : useSetupFilters
+eMinRR     = strictF ? 1.5 : moreF ? 0.75 : maxF ? 0.0 : minRR
+eFlipWin   = strictF ? 12 : loose ? 24 : flipWindow
+eAnyClose  = maxF ? true : strictF or moreF ? false : confirmRule == "Any close in direction"
+
+buySetupOk  = buy9 and (buyPerfected or maxF) and (not eFilters or (not na(actSellLo) and buySetupCLo >= actSellLo and close - actSellLo <= proxATR * atr14))
+sellSetupOk = sell9 and (sellPerfected or maxF) and (not eFilters or (not na(actBuyHi) and sellSetupCHi <= actBuyHi and actBuyHi - close <= proxATR * atr14))
+
+buySignal  = (eTrade13 and buyCD13) or (eTrade9 and buySetupOk) or (eTrade913 and buy913)
+sellSignal = (eTrade13 and sellCD13) or (eTrade9 and sellSetupOk) or (eTrade913 and sell913)
+
+// The objective is the TDST level of the setup that produced the signal.
+buyTarget  = actBuyHi
+sellTarget = actSellLo
+
+var int   pos       = 0
+var float posEntry  = na
+var float posStop   = na
+var float posTarget = na
+
+var bool  pendBuy      = false
+var int   pendBuyBar   = na
+var float pendBuyStop  = na
+var bool  pendSell     = false
+var int   pendSellBar  = na
+var float pendSellStop = na
+
+bool goLong   = false
+bool goShort  = false
+bool exitStop = false
+bool exitTgt  = false
+
+// Manage an open trade before looking at new signals, so an exit and a fresh
+// entry can share a bar without stepping on each other.
+if pos == 1
+    if (violationMode == "Close" ? close < posStop : low < posStop)
+        exitStop := true
+        pos      := 0
+    else if not na(posTarget) and (violationMode == "Close" ? close > posTarget : high > posTarget)
+        exitTgt := true
+        pos     := 0
+else if pos == -1
+    if (violationMode == "Close" ? close > posStop : high > posStop)
+        exitStop := true
+        pos      := 0
+    else if not na(posTarget) and (violationMode == "Close" ? close < posTarget : low < posTarget)
+        exitTgt := true
+        pos     := 0
+
+float longStop  = na
+float shortStop = na
+
+confirmLong  = eAnyClose ? close > close[1] : close > close[4]
+confirmShort = eAnyClose ? close < close[1] : close < close[4]
+
+if eAggr
+    if buySignal
+        longStop := buySigStop
+    if sellSignal
+        shortStop := sellSigStop
+else
+    if buySignal
+        pendBuy     := true
+        pendBuyBar  := bar_index
+        pendBuyStop := buySigStop
+    else if pendBuy and bar_index > pendBuyBar
+        if low < pendBuyStop or bar_index - pendBuyBar > eFlipWin
+            pendBuy := false
+        else if confirmLong
+            longStop := pendBuyStop
+            pendBuy  := false
+    if sellSignal
+        pendSell     := true
+        pendSellBar  := bar_index
+        pendSellStop := sellSigStop
+    else if pendSell and bar_index > pendSellBar
+        if high > pendSellStop or bar_index - pendSellBar > eFlipWin
+            pendSell := false
+        else if confirmShort
+            shortStop := pendSellStop
+            pendSell  := false
+
+// A TDST level that price has already passed is no target at all, so it is
+// dropped rather than used to close the trade on the next bar.
+if not na(longStop) and pos != 1 and close > longStop
+    tgt = na(buyTarget) or buyTarget <= close ? na : buyTarget
+    rr  = na(tgt) ? na : (tgt - close) / (close - longStop)
+    if eMinRR <= 0 or (not na(rr) and rr >= eMinRR)
+        goLong    := true
+        pos       := 1
+        posEntry  := close
+        posStop   := longStop
+        posTarget := tgt
+
+if not na(shortStop) and pos != -1 and close < shortStop
+    tgt = na(sellTarget) or sellTarget >= close ? na : sellTarget
+    rr  = na(tgt) ? na : (close - tgt) / (shortStop - close)
+    if eMinRR <= 0 or (not na(rr) and rr >= eMinRR)
+        goShort   := true
+        pos       := -1
+        posEntry  := close
+        posStop   := shortStop
+        posTarget := tgt
+
+// ------------------------------------------------------------------ plotting --
+// Stop / target as plots so they travel with the chart.
+plot(showStopTgt and pos != 0 ? posStop : na, "Trade stop", color = color.new(color.red, 20), style = plot.style_linebr)
+plot(showStopTgt and pos != 0 ? posTarget : na, "Trade target", color = color.new(color.green, 20), style = plot.style_linebr)
+
+if showTrades and goLong
+    label.new(bar_index, entryBuyY, "BUY " + str.tostring(posEntry, format.mintick), style = label.style_label_up, color = bullCol, textcolor = color.white, size = size.small)
+if showTrades and goShort
+    label.new(bar_index, entrySellY, "SELL " + str.tostring(posEntry, format.mintick), style = label.style_label_down, color = bearCol, textcolor = color.white, size = size.small)
+
+plotshape((showTrades and exitStop) ? posStop : na, "Stopped out", shape.xcross, location.absolute, color.new(color.red, 20), size = size.tiny)
+plotshape((showTrades and exitTgt) ? posTarget : na, "Target reached", shape.square, location.absolute, color.new(color.green, 20), size = size.tiny)
+
+// Trade panel (created only when turned on)
+if showPanel and showTrades and barstate.islast
+    var table panel = table.new(position.top_right, 2, 5, border_width = 1)
+    posTxt = pos == 1 ? "Long" : pos == -1 ? "Short" : "Flat"
+    posCol = pos == 1 ? bullCol : pos == -1 ? bearCol : color.gray
+    openR  = pos == 0 or na(posEntry) ? na : pos == 1 ? (close - posEntry) / (posEntry - posStop) : (posEntry - close) / (posStop - posEntry)
+    table.cell(panel, 0, 0, "Position", text_color = color.gray, text_size = size.small)
+    table.cell(panel, 1, 0, posTxt, text_color = posCol, text_size = size.small)
+    table.cell(panel, 0, 1, "Entry", text_color = color.gray, text_size = size.small)
+    table.cell(panel, 1, 1, pos == 0 ? "-" : str.tostring(posEntry, format.mintick), text_color = color.gray, text_size = size.small)
+    table.cell(panel, 0, 2, "Stop", text_color = color.gray, text_size = size.small)
+    table.cell(panel, 1, 2, pos == 0 ? "-" : str.tostring(posStop, format.mintick), text_color = color.new(color.red, 0), text_size = size.small)
+    table.cell(panel, 0, 3, "Target", text_color = color.gray, text_size = size.small)
+    table.cell(panel, 1, 3, pos == 0 or na(posTarget) ? "-" : str.tostring(posTarget, format.mintick), text_color = color.new(color.green, 0), text_size = size.small)
+    table.cell(panel, 0, 4, "Open R", text_color = color.gray, text_size = size.small)
+    table.cell(panel, 1, 4, na(openR) ? "-" : str.tostring(openR, "#.##"), text_color = color.gray, text_size = size.small)
+
+showThisBuySetup  = eShowSetup and buySetup >= eMinSetup and (eShowExt or buySetup <= 9)
+showThisSellSetup = eShowSetup and sellSetup >= eMinSetup and (eShowExt or sellSetup <= 9)
+bc = eShowCD and buyCDPrint >= eMinCD and not buyCD13
+sc = eShowCD and sellCDPrint >= eMinCD and not sellCD13
+
+// Series plots stay locked to candles when you scroll, zoom, or get new bars.
+plotchar(showThisBuySetup and buySetup == 1, "Buy S1", "1", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showThisBuySetup and buySetup == 2, "Buy S2", "2", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showThisBuySetup and buySetup == 3, "Buy S3", "3", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showThisBuySetup and buySetup == 4, "Buy S4", "4", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showThisBuySetup and buySetup == 5, "Buy S5", "5", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showThisBuySetup and buySetup == 6, "Buy S6", "6", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showThisBuySetup and buySetup == 7, "Buy S7", "7", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showThisBuySetup and buySetup == 8, "Buy S8", "8", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showThisBuySetup and buySetup == 9, "Buy S9", "9", location.belowbar, bullCol, size = size.small)
+plotchar(showThisBuySetup and buySetup == 18, "Buy S18", "R", location.belowbar, bullCol, size = size.tiny)
+
+plotchar(showThisSellSetup and sellSetup == 1, "Sell S1", "1", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showThisSellSetup and sellSetup == 2, "Sell S2", "2", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showThisSellSetup and sellSetup == 3, "Sell S3", "3", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showThisSellSetup and sellSetup == 4, "Sell S4", "4", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showThisSellSetup and sellSetup == 5, "Sell S5", "5", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showThisSellSetup and sellSetup == 6, "Sell S6", "6", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showThisSellSetup and sellSetup == 7, "Sell S7", "7", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showThisSellSetup and sellSetup == 8, "Sell S8", "8", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showThisSellSetup and sellSetup == 9, "Sell S9", "9", location.abovebar, bearCol, size = size.small)
+plotchar(showThisSellSetup and sellSetup == 18, "Sell S18", "R", location.abovebar, bearCol, size = size.tiny)
+
+plotchar(bc and buyCDPrint == 1,  "Buy C1",  "1", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 2,  "Buy C2",  "2", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 3,  "Buy C3",  "3", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 4,  "Buy C4",  "4", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 5,  "Buy C5",  "5", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 6,  "Buy C6",  "6", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 7,  "Buy C7",  "7", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 8,  "Buy C8",  "8", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 9,  "Buy C9",  "9", location.belowbar, cdBullCol, size = size.tiny)
+plotshape(bc and buyCDPrint == 10, "Buy C10", shape.circle, location.belowbar, color.new(cdBullCol, 100), text = "10", textcolor = cdBullCol, size = size.tiny)
+plotshape(bc and buyCDPrint == 11, "Buy C11", shape.circle, location.belowbar, color.new(cdBullCol, 100), text = "11", textcolor = cdBullCol, size = size.tiny)
+plotshape(bc and buyCDPrint == 12, "Buy C12", shape.circle, location.belowbar, color.new(cdBullCol, 100), text = "12", textcolor = cdBullCol, size = size.tiny)
+plotchar(eShowCD and buyCDDefer, "Buy C+", "+", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(buyRecycle, "Buy recycle", "R", location.belowbar, bullCol, size = size.tiny)
+
+plotchar(sc and sellCDPrint == 1,  "Sell C1",  "1", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 2,  "Sell C2",  "2", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 3,  "Sell C3",  "3", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 4,  "Sell C4",  "4", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 5,  "Sell C5",  "5", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 6,  "Sell C6",  "6", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 7,  "Sell C7",  "7", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 8,  "Sell C8",  "8", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 9,  "Sell C9",  "9", location.abovebar, cdBearCol, size = size.tiny)
+plotshape(sc and sellCDPrint == 10, "Sell C10", shape.circle, location.abovebar, color.new(cdBearCol, 100), text = "10", textcolor = cdBearCol, size = size.tiny)
+plotshape(sc and sellCDPrint == 11, "Sell C11", shape.circle, location.abovebar, color.new(cdBearCol, 100), text = "11", textcolor = cdBearCol, size = size.tiny)
+plotshape(sc and sellCDPrint == 12, "Sell C12", shape.circle, location.abovebar, color.new(cdBearCol, 100), text = "12", textcolor = cdBearCol, size = size.tiny)
+plotchar(eShowCD and sellCDDefer, "Sell C+", "+", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sellRecycle, "Sell recycle", "R", location.abovebar, bearCol, size = size.tiny)
+
+plotshape(buy9, "Buy setup 9", shape.triangleup, location.belowbar, bullCol, size = size.tiny)
+plotshape(sell9, "Sell setup 9", shape.triangledown, location.abovebar, bearCol, size = size.tiny)
+plotshape(showPerf and buyPerfected, "Buy setup perfected", shape.diamond, location.belowbar, bullCol, size = size.tiny)
+plotshape(showPerf and sellPerfected, "Sell setup perfected", shape.diamond, location.abovebar, bearCol, size = size.tiny)
+plotshape(buyCD13, "Buy countdown 13", shape.labelup, location.belowbar, bullCol, text = "13", textcolor = color.white, size = size.tiny)
+plotshape(sellCD13, "Sell countdown 13", shape.labeldown, location.abovebar, bearCol, text = "13", textcolor = color.white, size = size.tiny)
+plotshape(eShow913 and buy913, "Buy 9-13-9", shape.labelup, location.belowbar, bullCol, text = "9-13-9", textcolor = color.white, size = size.tiny)
+plotshape(eShow913 and sell913, "Sell 9-13-9", shape.labeldown, location.abovebar, bearCol, text = "9-13-9", textcolor = color.white, size = size.tiny)
+plotshape(eShowRiskX and buyRiskHit, "Buy risk level violated", shape.xcross, location.belowbar, color.new(bullCol, 40), size = size.tiny)
+plotshape(eShowRiskX and sellRiskHit, "Sell risk level violated", shape.xcross, location.abovebar, color.new(bearCol, 40), size = size.tiny)
+
+// ------------------------------------------------------------------- alerts --
+alertcondition(buy9, "Buy setup 9", "DeMark buy setup 9 on {{ticker}} {{interval}}")
+alertcondition(sell9, "Sell setup 9", "DeMark sell setup 9 on {{ticker}} {{interval}}")
+alertcondition(buyPerfected, "Buy setup perfected", "DeMark buy setup perfected on {{ticker}} {{interval}}")
+alertcondition(sellPerfected, "Sell setup perfected", "DeMark sell setup perfected on {{ticker}} {{interval}}")
+alertcondition(buyCD13, "Buy countdown 13", "DeMark buy countdown 13 on {{ticker}} {{interval}}")
+alertcondition(sellCD13, "Sell countdown 13", "DeMark sell countdown 13 on {{ticker}} {{interval}}")
+alertcondition(buyCDDefer, "Buy 13 deferred", "DeMark buy countdown 13 deferred on {{ticker}} {{interval}}")
+alertcondition(sellCDDefer, "Sell 13 deferred", "DeMark sell countdown 13 deferred on {{ticker}} {{interval}}")
+alertcondition(buy913, "Buy 9-13-9", "DeMark 9-13-9 buy count on {{ticker}} {{interval}}")
+alertcondition(sell913, "Sell 9-13-9", "DeMark 9-13-9 sell count on {{ticker}} {{interval}}")
+alertcondition(buyRecycle, "Buy countdown recycled", "DeMark buy countdown recycled on {{ticker}} {{interval}}")
+alertcondition(sellRecycle, "Sell countdown recycled", "DeMark sell countdown recycled on {{ticker}} {{interval}}")
+alertcondition(buyRiskHit, "Buy risk level violated", "DeMark buy risk level violated on {{ticker}} {{interval}}")
+alertcondition(sellRiskHit, "Sell risk level violated", "DeMark sell risk level violated on {{ticker}} {{interval}}")
+alertcondition(goLong, "Buy entry", "DeMark buy entry on {{ticker}} {{interval}} at {{close}}")
+alertcondition(goShort, "Sell entry", "DeMark sell entry on {{ticker}} {{interval}} at {{close}}")
+alertcondition(goLong or goShort, "Any entry", "DeMark entry on {{ticker}} {{interval}} at {{close}}")
+alertcondition(exitStop, "Stopped out", "DeMark trade stopped out on {{ticker}} {{interval}}")
+alertcondition(exitTgt, "Target reached", "DeMark trade reached TDST target on {{ticker}} {{interval}}")
+alertcondition(resBreak, "TDST resistance broken", "Close above TDST resistance on {{ticker}} {{interval}}")
+alertcondition(supBreak, "TDST support broken", "Close below TDST support on {{ticker}} {{interval}}")

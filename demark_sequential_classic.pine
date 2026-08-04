@@ -1,0 +1,212 @@
+//@version=6
+// =============================================================================
+//  TD Sequential - Classic look
+//  Counts and TDST are drawn with plot/plotchar/plotshape so they stay locked
+//  to the candles when you scroll, zoom or when new bars form.
+// =============================================================================
+
+indicator("TD Sequential Classic", "TD Classic", overlay = true)
+
+showSetup = input.bool(true, "Show setup counts")
+showCD    = input.bool(true, "Show countdown counts")
+showTDST  = input.bool(true, "Show TDST")
+showPerf  = input.bool(true, "Mark perfected setups")
+bullCol   = input.color(#00c853, "Buy colour")
+bearCol   = input.color(#ff1744, "Sell colour")
+cdBullCol = input.color(#69f0ae, "Buy countdown colour")
+cdBearCol = input.color(#ff8a80, "Sell countdown colour")
+
+pc = nz(close[1], close)
+th = math.max(high, pc)
+tl = math.min(low, pc)
+
+ready    = bar_index >= 5
+buyCond  = ready and close < close[4]
+sellCond = ready and close > close[4]
+bearFlip = buyCond and close[1] > close[5]
+bullFlip = sellCond and close[1] < close[5]
+
+var int buySetup  = 0
+var int sellSetup = 0
+buySetup  := bearFlip ? 1 : buySetup > 0 and buySetup < 9 and buyCond ? buySetup + 1 : 0
+sellSetup := bullFlip ? 1 : sellSetup > 0 and sellSetup < 9 and sellCond ? sellSetup + 1 : 0
+
+buy9  = buySetup == 9
+sell9 = sellSetup == 9
+
+var float buyPerfLevel  = na
+var int   buyPerfLeft   = 0
+var float sellPerfLevel = na
+var int   sellPerfLeft  = 0
+bool buyPerfected  = false
+bool sellPerfected = false
+
+if buy9
+    buyPerfLevel := math.min(low[2], low[3])
+    if math.min(low, low[1]) <= buyPerfLevel
+        buyPerfected := true
+        buyPerfLeft  := 0
+    else
+        buyPerfLeft := 8
+else if buyPerfLeft > 0
+    if low <= buyPerfLevel
+        buyPerfected := true
+        buyPerfLeft  := 0
+    else
+        buyPerfLeft := buyPerfLeft - 1
+
+if sell9
+    sellPerfLevel := math.max(high[2], high[3])
+    if math.max(high, high[1]) >= sellPerfLevel
+        sellPerfected := true
+        sellPerfLeft  := 0
+    else
+        sellPerfLeft := 8
+else if sellPerfLeft > 0
+    if high >= sellPerfLevel
+        sellPerfected := true
+        sellPerfLeft  := 0
+    else
+        sellPerfLeft := sellPerfLeft - 1
+
+hh9 = ta.highest(th, 9)
+ll9 = ta.lowest(tl, 9)
+var float tdstRes = na
+var float tdstSup = na
+var bool  tdstResOn = false
+var bool  tdstSupOn = false
+
+if buy9
+    tdstRes   := hh9
+    tdstResOn := true
+if sell9
+    tdstSup   := ll9
+    tdstSupOn := true
+if tdstResOn and close > tdstRes
+    tdstResOn := false
+if tdstSupOn and close < tdstSup
+    tdstSupOn := false
+
+// TDST as plots so the lines always travel with the candles.
+plot(showTDST and tdstResOn ? tdstRes : na, "TDST resistance", color = bearCol, style = plot.style_linebr, linewidth = 1)
+plot(showTDST and tdstSupOn ? tdstSup : na, "TDST support", color = bullCol, style = plot.style_linebr, linewidth = 1)
+
+var int   buyCD    = 0
+var int   sellCD   = 0
+var bool  buyCDOn  = false
+var bool  sellCDOn = false
+var float buyCD8   = na
+var float sellCD8  = na
+int  buyCDPrint  = 0
+int  sellCDPrint = 0
+bool buyCD13     = false
+bool sellCD13    = false
+bool buyCDDefer  = false
+bool sellCDDefer = false
+
+if sell9
+    buyCDOn := false
+    buyCD   := 0
+    buyCD8  := na
+if buy9
+    sellCDOn := false
+    sellCD   := 0
+    sellCD8  := na
+if buy9
+    buyCDOn := true
+    buyCD   := 0
+    buyCD8  := na
+if sell9
+    sellCDOn := true
+    sellCD   := 0
+    sellCD8  := na
+
+if buyCDOn and bar_index >= 2 and close <= low[2]
+    if buyCD == 12 and not na(buyCD8) and low > buyCD8
+        buyCDDefer := true
+    else
+        buyCD      := buyCD + 1
+        buyCDPrint := buyCD
+        if buyCD == 8
+            buyCD8 := close
+        if buyCD == 13
+            buyCD13 := true
+            buyCDOn := false
+            buyCD   := 0
+            buyCD8  := na
+
+if sellCDOn and bar_index >= 2 and close >= high[2]
+    if sellCD == 12 and not na(sellCD8) and high < sellCD8
+        sellCDDefer := true
+    else
+        sellCD      := sellCD + 1
+        sellCDPrint := sellCD
+        if sellCD == 8
+            sellCD8 := close
+        if sellCD == 13
+            sellCD13 := true
+            sellCDOn := false
+            sellCD   := 0
+            sellCD8  := na
+
+// Setup counts as plotchar - series-bound, always move with the chart.
+plotchar(showSetup and buySetup == 1,  "Buy S1",  "1", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showSetup and buySetup == 2,  "Buy S2",  "2", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showSetup and buySetup == 3,  "Buy S3",  "3", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showSetup and buySetup == 4,  "Buy S4",  "4", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showSetup and buySetup == 5,  "Buy S5",  "5", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showSetup and buySetup == 6,  "Buy S6",  "6", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showSetup and buySetup == 7,  "Buy S7",  "7", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showSetup and buySetup == 8,  "Buy S8",  "8", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(showSetup and buySetup == 9,  "Buy S9",  "9", location.belowbar, bullCol, size = size.small)
+
+plotchar(showSetup and sellSetup == 1, "Sell S1", "1", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showSetup and sellSetup == 2, "Sell S2", "2", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showSetup and sellSetup == 3, "Sell S3", "3", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showSetup and sellSetup == 4, "Sell S4", "4", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showSetup and sellSetup == 5, "Sell S5", "5", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showSetup and sellSetup == 6, "Sell S6", "6", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showSetup and sellSetup == 7, "Sell S7", "7", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showSetup and sellSetup == 8, "Sell S8", "8", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(showSetup and sellSetup == 9, "Sell S9", "9", location.abovebar, bearCol, size = size.small)
+
+// Countdown counts. On Sequential they rarely share a bar with setup counts.
+plotchar(showCD and buyCDPrint == 1,  "Buy C1",  "1", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(showCD and buyCDPrint == 2,  "Buy C2",  "2", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(showCD and buyCDPrint == 3,  "Buy C3",  "3", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(showCD and buyCDPrint == 4,  "Buy C4",  "4", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(showCD and buyCDPrint == 5,  "Buy C5",  "5", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(showCD and buyCDPrint == 6,  "Buy C6",  "6", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(showCD and buyCDPrint == 7,  "Buy C7",  "7", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(showCD and buyCDPrint == 8,  "Buy C8",  "8", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(showCD and buyCDPrint == 9,  "Buy C9",  "9", location.belowbar, cdBullCol, size = size.tiny)
+plotshape(showCD and buyCDPrint == 10, "Buy C10", shape.circle, location.belowbar, color.new(cdBullCol, 100), text = "10", textcolor = cdBullCol, size = size.tiny)
+plotshape(showCD and buyCDPrint == 11, "Buy C11", shape.circle, location.belowbar, color.new(cdBullCol, 100), text = "11", textcolor = cdBullCol, size = size.tiny)
+plotshape(showCD and buyCDPrint == 12, "Buy C12", shape.circle, location.belowbar, color.new(cdBullCol, 100), text = "12", textcolor = cdBullCol, size = size.tiny)
+plotchar(showCD and buyCDDefer, "Buy C+", "+", location.belowbar, cdBullCol, size = size.tiny)
+
+plotchar(showCD and sellCDPrint == 1,  "Sell C1",  "1", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(showCD and sellCDPrint == 2,  "Sell C2",  "2", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(showCD and sellCDPrint == 3,  "Sell C3",  "3", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(showCD and sellCDPrint == 4,  "Sell C4",  "4", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(showCD and sellCDPrint == 5,  "Sell C5",  "5", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(showCD and sellCDPrint == 6,  "Sell C6",  "6", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(showCD and sellCDPrint == 7,  "Sell C7",  "7", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(showCD and sellCDPrint == 8,  "Sell C8",  "8", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(showCD and sellCDPrint == 9,  "Sell C9",  "9", location.abovebar, cdBearCol, size = size.tiny)
+plotshape(showCD and sellCDPrint == 10, "Sell C10", shape.circle, location.abovebar, color.new(cdBearCol, 100), text = "10", textcolor = cdBearCol, size = size.tiny)
+plotshape(showCD and sellCDPrint == 11, "Sell C11", shape.circle, location.abovebar, color.new(cdBearCol, 100), text = "11", textcolor = cdBearCol, size = size.tiny)
+plotshape(showCD and sellCDPrint == 12, "Sell C12", shape.circle, location.abovebar, color.new(cdBearCol, 100), text = "12", textcolor = cdBearCol, size = size.tiny)
+plotchar(showCD and sellCDDefer, "Sell C+", "+", location.abovebar, cdBearCol, size = size.tiny)
+plotshape(showCD and buyCD13,  "Buy 13",  shape.labelup,   location.belowbar, bullCol, text = "13", textcolor = color.white, size = size.tiny)
+plotshape(showCD and sellCD13, "Sell 13", shape.labeldown, location.abovebar, bearCol, text = "13", textcolor = color.white, size = size.tiny)
+
+plotshape(buy9, "Buy setup done", shape.triangleup, location.belowbar, bullCol, size = size.tiny)
+plotshape(sell9, "Sell setup done", shape.triangledown, location.abovebar, bearCol, size = size.tiny)
+plotshape(showPerf and buyPerfected, "Buy perfected", shape.diamond, location.belowbar, bullCol, size = size.tiny)
+plotshape(showPerf and sellPerfected, "Sell perfected", shape.diamond, location.abovebar, bearCol, size = size.tiny)
+
+alertcondition(buy9, "Buy setup 9", "TD buy setup 9 on {{ticker}}")
+alertcondition(sell9, "Sell setup 9", "TD sell setup 9 on {{ticker}}")
+alertcondition(buyCD13, "Buy countdown 13", "TD buy countdown 13 on {{ticker}}")
+alertcondition(sellCD13, "Sell countdown 13", "TD sell countdown 13 on {{ticker}}")
