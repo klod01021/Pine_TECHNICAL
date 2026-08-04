@@ -36,8 +36,8 @@ GE = "Entries"
 GT = "TDST"
 GA = "Appearance"
 
-chartMode = input.string("Full", "How much to show", options = ["Full", "Simple", "Signals only", "Custom"], group = GD,
-                          tooltip = "Full (default): every setup and countdown count on each bar, written as S1-S9 and C1-C13. Simple: only the late counts S8-S9 and C11-C13. Signals only: no count numbers, just the 9 triangle, CD13 tag, BUY/SELL and levels. Custom: use the TD Setup / Countdown / Appearance settings below.")
+chartMode = input.string("Classic", "How much to show", options = ["Classic", "Full", "Simple", "Signals only", "Custom"], group = GD,
+                          tooltip = "Classic (default): the usual DeMark look — plain 1-9 setup counts close to the bars, plain 1-13 countdown counts one row out, TDST lines, no buy/sell labels or risk zones. Full: same counts plus our extras. Simple: only late counts. Signals only: markers and entries, no numbers.")
 
 method     = input.string("Sequential", "Countdown method", options = ["Sequential", "Combo V1", "Combo V2"], group = GM,
                           tooltip = "Sequential counts closes beyond the low/high two bars earlier. Combo adds DeMark's stricter conditions and starts counting from bar 1 of the setup. Version II relaxes counts 11 to 13 to successively lower/higher closes.")
@@ -63,12 +63,12 @@ recycleMode  = input.string("DeMark qualifiers", "Recycle rule", options = ["DeM
                              tooltip = "Qualifier I recycles when the new setup's true range is at least as large as the previous one but smaller than 1.618 times it. Qualifier II keeps the countdown when the new setup sits inside the previous setup's range.")
 
 showSetupRisk = input.bool(false, "Risk level on setup 9", group = GR)
-showCDRisk    = input.bool(true, "Risk level on countdown 13", group = GR)
-showZone      = input.bool(true, "Shade the risk zone", group = GR,
+showCDRisk    = input.bool(false, "Risk level on countdown 13", group = GR)
+showZone      = input.bool(false, "Shade the risk zone", group = GR,
                            tooltip = "Shades the area between the pattern extreme and the risk level.")
 violationMode = input.string("Intrabar", "Risk level violated by", options = ["Intrabar", "Close"], group = GR)
 
-showTrades      = input.bool(true, "Show buy / sell entries", group = GE)
+showTrades      = input.bool(false, "Show buy / sell entries", group = GE)
 frequency       = input.string("More signals", "How many signals", options = ["DeMark strict", "More signals", "Maximum signals", "Custom"], group = GE,
                                  tooltip = "DeMark strict: thirteens only, wait for confirmation, keep every filter. More signals: also trade nines and 9-13-9 counts, halve the reward-to-risk requirement, wait longer for confirmation. Maximum signals: everything, entered on the signal bar itself with no reward-to-risk or setup filter at all. Custom: use the settings below. The looser the setting the more trades you get and the worse the average one is.")
 trade13         = input.bool(true, "Custom: trade countdown 13s", group = GE)
@@ -85,41 +85,46 @@ useSetupFilters = input.bool(true, "Custom: filter setup 9 entries", group = GE,
 proxATR         = input.float(1.0, "TDST proximity for setup entries (ATR)", minval = 0.1, step = 0.1, group = GE)
 minRR           = input.float(1.5, "Custom: minimum reward to risk", minval = 0, step = 0.1, group = GE,
                                tooltip = "DeMark's filter: the distance from the entry to TDST should be at least 1.5 times the distance to the risk level. Set to 0 to take every signal.")
-showStopTgt     = input.bool(true, "Draw stop and target while in a trade", group = GE)
-showPanel       = input.bool(true, "Show trade panel", group = GE)
+showStopTgt     = input.bool(false, "Draw stop and target while in a trade", group = GE)
+showPanel       = input.bool(false, "Show trade panel", group = GE)
 
 showTDST    = input.bool(true, "Show TDST support / resistance", group = GT)
 tdstStyleIn = input.string("Dashed", "Line style", options = ["Solid", "Dashed", "Dotted"], group = GT)
 tdstWidth   = input.int(1, "Line width", minval = 1, maxval = 4, group = GT)
 
-setupStyle = input.string("Prefixed S", "Setup count style", options = ["Plain", "Prefixed S", "Circled"], group = GA,
-                           tooltip = "How the setup counts are written, so they cannot be mistaken for countdown counts.")
-cdStyle    = input.string("Prefixed C", "Countdown count style", options = ["Plain", "Prefixed C", "Circled"], group = GA)
-bullCol    = input.color(#26a69a, "Buy side colour", group = GA)
-bearCol    = input.color(#ef5350, "Sell side colour", group = GA)
-cdBullCol  = input.color(#26a69a, "Buy countdown count colour", group = GA)
-cdBearCol  = input.color(#ef5350, "Sell countdown count colour", group = GA)
-setupOff   = input.float(0.4, "Setup count row (ATR)", minval = 0, step = 0.1, group = GA)
-cdOff      = input.float(1.2, "Countdown count row (ATR)", minval = 0, step = 0.1, group = GA)
-entryOff   = input.float(2.1, "Entry label row (ATR)", minval = 0, step = 0.1, group = GA)
+setupStyle = input.string("Plain", "Setup count style", options = ["Plain", "Prefixed S", "Circled"], group = GA,
+                           tooltip = "Classic DeMark charts use plain digits. Prefixed S/C or circled digits are optional.")
+cdStyle    = input.string("Plain", "Countdown count style", options = ["Plain", "Prefixed C", "Circled"], group = GA)
+bullCol    = input.color(#00c853, "Buy side colour", group = GA)
+bearCol    = input.color(#ff1744, "Sell side colour", group = GA)
+cdBullCol  = input.color(#69f0ae, "Buy countdown count colour", group = GA)
+cdBearCol  = input.color(#ff8a80, "Sell countdown count colour", group = GA)
+setupOff   = input.float(0.25, "Setup count row (ATR)", minval = 0, step = 0.05, group = GA)
+cdOff      = input.float(0.85, "Countdown count row (ATR)", minval = 0, step = 0.05, group = GA)
+entryOff   = input.float(1.6, "Entry label row (ATR)", minval = 0, step = 0.1, group = GA)
 
 isCombo   = method != "Sequential"
 comboV2   = method == "Combo V2"
 tdstStyle = tdstStyleIn == "Solid" ? line.style_solid : tdstStyleIn == "Dashed" ? line.style_dashed : line.style_dotted
 
-// Chart density. Simple is the default so the chart stays readable: only the
-// late counts and the big markers, not every 1 through 9 and 1 through 13.
+// Chart look. Classic matches the usual DeMark Sequential chart: plain digits,
+// setup close to the bar, countdown one row out, TDST on, trade clutter off.
+classicMode = chartMode == "Classic"
 signalsOnly = chartMode == "Signals only"
 simpleMode  = chartMode == "Simple"
 fullMode    = chartMode == "Full"
-eShowSetup  = signalsOnly ? false : simpleMode or fullMode ? true : showSetup
-eShowCD     = signalsOnly ? false : simpleMode or fullMode ? true : showCD
-eMinSetup   = simpleMode ? 8 : fullMode ? 1 : minCount
-eMinCD      = simpleMode ? 11 : fullMode ? 1 : minCDCount
-eShowExt    = simpleMode or signalsOnly ? false : fullMode ? true : showExtended
-eSetupStyle = simpleMode ? "Prefixed S" : setupStyle
-eCdStyle    = simpleMode ? "Prefixed C" : cdStyle
-eCountSize  = simpleMode ? size.small : size.tiny
+eShowSetup  = signalsOnly ? false : classicMode or simpleMode or fullMode ? true : showSetup
+eShowCD     = signalsOnly ? false : classicMode or simpleMode or fullMode ? true : showCD
+eMinSetup   = simpleMode ? 8 : classicMode or fullMode ? 1 : minCount
+eMinCD      = simpleMode ? 11 : classicMode or fullMode ? 1 : minCDCount
+eShowExt    = classicMode or simpleMode or signalsOnly ? false : fullMode ? true : showExtended
+eSetupStyle = classicMode ? "Plain" : simpleMode ? "Prefixed S" : setupStyle
+eCdStyle    = classicMode ? "Plain" : simpleMode ? "Prefixed C" : cdStyle
+eCountSize  = size.tiny
+eMarkSize   = classicMode ? size.tiny : size.small
+eShow913    = not classicMode
+eShowRiskX  = not classicMode
+e13Text     = classicMode ? "13" : "CD13"
 
 // ---------------------------------------------------------------- utilities --
 pc = nz(close[1], close)
@@ -128,12 +133,15 @@ tl = math.min(low, pc)
 tr = th - tl
 
 atr14      = nz(ta.atr(14), high - low)
-setupBuyY  = low - atr14 * setupOff
-setupSellY = high + atr14 * setupOff
-cdBuyY     = low - atr14 * cdOff
-cdSellY    = high + atr14 * cdOff
-entryBuyY  = low - atr14 * entryOff
-entrySellY = high + atr14 * entryOff
+eSetupOff  = classicMode ? 0.25 : setupOff
+eCdOff     = classicMode ? 0.85 : cdOff
+eEntryOff  = classicMode ? 1.6 : entryOff
+setupBuyY  = low - atr14 * eSetupOff
+setupSellY = high + atr14 * eSetupOff
+cdBuyY     = low - atr14 * eCdOff
+cdSellY    = high + atr14 * eCdOff
+entryBuyY  = low - atr14 * eEntryOff
+entrySellY = high + atr14 * eEntryOff
 
 var array<string> CIRCLED = array.from("①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩", "⑪", "⑫", "⑬", "⑭", "⑮", "⑯", "⑰", "⑱", "⑲", "⑳")
 
@@ -403,7 +411,7 @@ if isCombo and armBuy
             if buyCD == 8
                 buyCD8 := c0
             if eShowCD and buyCD >= eMinCD
-                label.new(bar_index - i, l0 - nz(atr14[i], atr14) * cdOff, f_count(buyCD, eCdStyle, "C", CIRCLED), style = label.style_none, textcolor = color.new(cdBullCol, 20), size = eCountSize)
+                label.new(bar_index - i, l0 - nz(atr14[i], atr14) * eCdOff, f_count(buyCD, eCdStyle, "C", CIRCLED), style = label.style_none, textcolor = color.new(cdBullCol, classicMode ? 0 : 20), size = eCountSize)
 
 if isCombo and armSell
     sellSeeded := true
@@ -425,7 +433,7 @@ if isCombo and armSell
             if sellCD == 8
                 sellCD8 := c0
             if eShowCD and sellCD >= eMinCD
-                label.new(bar_index - i, h0 + nz(atr14[i], atr14) * cdOff, f_count(sellCD, eCdStyle, "C", CIRCLED), style = label.style_none, textcolor = color.new(cdBearCol, 20), size = eCountSize)
+                label.new(bar_index - i, h0 + nz(atr14[i], atr14) * eCdOff, f_count(sellCD, eCdStyle, "C", CIRCLED), style = label.style_none, textcolor = color.new(cdBearCol, classicMode ? 0 : 20), size = eCountSize)
 
 // The extreme of the countdown phase counts every bar, numbered or not.
 if buyCDOn and not buySeeded
@@ -747,31 +755,31 @@ if showThisSellSetup
     label.new(bar_index, setupSellY, f_count(sellSetup, eSetupStyle, "S", CIRCLED), style = label.style_none, textcolor = sellSetupDone ? bearCol : color.new(bearCol, 30), size = eCountSize)
 
 if eShowCD and buyCDPrint >= eMinCD and not buyCD13
-    label.new(bar_index, cdBuyY, f_count(buyCDPrint, eCdStyle, "C", CIRCLED), style = label.style_none, textcolor = color.new(cdBullCol, 20), size = eCountSize)
+    label.new(bar_index, cdBuyY, f_count(buyCDPrint, eCdStyle, "C", CIRCLED), style = label.style_none, textcolor = color.new(cdBullCol, classicMode ? 0 : 20), size = eCountSize)
 if eShowCD and sellCDPrint >= eMinCD and not sellCD13
-    label.new(bar_index, cdSellY, f_count(sellCDPrint, eCdStyle, "C", CIRCLED), style = label.style_none, textcolor = color.new(cdBearCol, 20), size = eCountSize)
+    label.new(bar_index, cdSellY, f_count(sellCDPrint, eCdStyle, "C", CIRCLED), style = label.style_none, textcolor = color.new(cdBearCol, classicMode ? 0 : 20), size = eCountSize)
 
 deferTxt = eCdStyle == "Plain" ? "+" : "C+"
 if eShowCD and buyCDDefer
-    label.new(bar_index, cdBuyY, deferTxt, style = label.style_none, textcolor = color.new(cdBullCol, 20), size = eCountSize)
+    label.new(bar_index, cdBuyY, deferTxt, style = label.style_none, textcolor = color.new(cdBullCol, classicMode ? 0 : 20), size = eCountSize)
 if eShowCD and sellCDDefer
-    label.new(bar_index, cdSellY, deferTxt, style = label.style_none, textcolor = color.new(cdBearCol, 20), size = eCountSize)
+    label.new(bar_index, cdSellY, deferTxt, style = label.style_none, textcolor = color.new(cdBearCol, classicMode ? 0 : 20), size = eCountSize)
 
 if buyRecycle
     label.new(bar_index, cdBuyY, "R", style = label.style_none, textcolor = bullCol, size = eCountSize)
 if sellRecycle
     label.new(bar_index, cdSellY, "R", style = label.style_none, textcolor = bearCol, size = eCountSize)
 
-plotshape(buy9, "Buy setup 9", shape.triangleup, location.belowbar, bullCol, size = size.small)
-plotshape(sell9, "Sell setup 9", shape.triangledown, location.abovebar, bearCol, size = size.small)
-plotshape(showPerf and buyPerfected, "Buy setup perfected", shape.diamond, location.belowbar, bullCol, size = size.small)
-plotshape(showPerf and sellPerfected, "Sell setup perfected", shape.diamond, location.abovebar, bearCol, size = size.small)
-plotshape(buyCD13, "Buy countdown 13", shape.labelup, location.belowbar, bullCol, text = "CD13", textcolor = color.white, size = size.small)
-plotshape(sellCD13, "Sell countdown 13", shape.labeldown, location.abovebar, bearCol, text = "CD13", textcolor = color.white, size = size.small)
-plotshape(buy913, "Buy 9-13-9", shape.labelup, location.belowbar, bullCol, text = "9-13-9", textcolor = color.white, size = size.small)
-plotshape(sell913, "Sell 9-13-9", shape.labeldown, location.abovebar, bearCol, text = "9-13-9", textcolor = color.white, size = size.small)
-plotshape(buyRiskHit, "Buy risk level violated", shape.xcross, location.belowbar, color.new(bullCol, 40), size = size.small)
-plotshape(sellRiskHit, "Sell risk level violated", shape.xcross, location.abovebar, color.new(bearCol, 40), size = size.small)
+plotshape(buy9, "Buy setup 9", shape.triangleup, location.belowbar, bullCol, size = eMarkSize)
+plotshape(sell9, "Sell setup 9", shape.triangledown, location.abovebar, bearCol, size = eMarkSize)
+plotshape(showPerf and buyPerfected, "Buy setup perfected", shape.diamond, location.belowbar, bullCol, size = eMarkSize)
+plotshape(showPerf and sellPerfected, "Sell setup perfected", shape.diamond, location.abovebar, bearCol, size = eMarkSize)
+plotshape(buyCD13, "Buy countdown 13", shape.labelup, location.belowbar, bullCol, text = e13Text, textcolor = color.white, size = eMarkSize)
+plotshape(sellCD13, "Sell countdown 13", shape.labeldown, location.abovebar, bearCol, text = e13Text, textcolor = color.white, size = eMarkSize)
+plotshape(eShow913 and buy913, "Buy 9-13-9", shape.labelup, location.belowbar, bullCol, text = "9-13-9", textcolor = color.white, size = eMarkSize)
+plotshape(eShow913 and sell913, "Sell 9-13-9", shape.labeldown, location.abovebar, bearCol, text = "9-13-9", textcolor = color.white, size = eMarkSize)
+plotshape(eShowRiskX and buyRiskHit, "Buy risk level violated", shape.xcross, location.belowbar, color.new(bullCol, 40), size = eMarkSize)
+plotshape(eShowRiskX and sellRiskHit, "Sell risk level violated", shape.xcross, location.abovebar, color.new(bearCol, 40), size = eMarkSize)
 
 // ------------------------------------------------------------------- alerts --
 alertcondition(buy9, "Buy setup 9", "DeMark buy setup 9 on {{ticker}} {{interval}}")
