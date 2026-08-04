@@ -1,0 +1,380 @@
+//@version=6
+// =============================================================================
+//  DeMark TD Lines
+//
+//  Objective trendlines from Tom DeMark's "The New Science of Technical Analysis"
+//  (Chapter 1). Removes hand-drawn subjectivity by anchoring lines to TD Points
+//  and scoring breakouts with mechanical qualifiers.
+//
+//  TD Point (level N)
+//    High : a high with N lower highs immediately before AND after it
+//    Low  : a low  with N higher lows  immediately before AND after it
+//    Level 1 is the default (three-bar swing). Higher levels are rarer and
+//    usually more significant.
+//
+//  Construction (always right to left)
+//    TD Supply Line  : connect the two most recent same-level TD Point highs
+//                      -> resistance
+//    TD Demand Line  : connect the two most recent same-level TD Point lows
+//                      -> support
+//
+//  Breakout qualifiers (only one needs to be true)
+//    A close through the line is not enough. DeMark asks whether the break has
+//    genuine momentum. If none of the four qualifiers fire, the break is
+//    disqualified and is treated as a fade candidate rather than a continuation.
+//
+//    Upside break of Supply / downside break of Demand:
+//      Q1  Close beyond the prior bar's true high / true low
+//      Q2  Open already beyond the TD Line (gap through)
+//      Q3  Prior bar's close +/- its buying/selling pressure still sits on the
+//          wrong side of the line (pressure was exhausted before the break)
+//      Q4  Exceptional thrust: close beyond the prior two bars' true extremes
+//          while the TD Line sits inside the prior bar's range
+//
+//  Price projection
+//    On a qualified break, measure the largest distance from the line down to
+//    a low (Supply) or up to a high (Demand) between the two TD Points, then
+//    project that same distance beyond the line at the breakout bar.
+// =============================================================================
+
+indicator("DeMark TD Lines", "TD LINES", overlay = true, max_labels_count = 200, max_lines_count = 100)
+
+// ------------------------------------------------------------------- inputs --
+GP = "TD Points"
+GL = "TD Lines"
+GQ = "Breakouts & qualifiers"
+GA = "Appearance"
+GT = "Targets"
+
+tdLevel      = input.int(1, "TD Point level", minval = 1, maxval = 9, group = GP,
+                         tooltip = "Number of flanking bars required on each side of the pivot. Level 1 is the classic three-bar swing.")
+markPoints   = input.bool(true, "Mark TD Points on the chart", group = GP)
+extendRight  = input.int(20, "Extend lines (bars to the right)", minval = 0, maxval = 200, group = GL)
+showSupply   = input.bool(true, "Show TD Supply Line", group = GL)
+showDemand   = input.bool(true, "Show TD Demand Line", group = GL)
+showOlder    = input.bool(false, "Keep previous lines faded", group = GL,
+                          tooltip = "When off, only the active Supply and Demand lines are drawn.")
+showQual     = input.bool(true, "Mark qualified / disqualified breaks", group = GQ)
+fadeDisqual  = input.bool(true, "Treat disqualified breaks as fade signals", group = GQ)
+showProj     = input.bool(true, "Draw price projection on qualified breaks", group = GT)
+projBars     = input.int(15, "Projection line length (bars)", minval = 1, maxval = 100, group = GT)
+
+supplyCol    = input.color(#ef5350, "Supply colour", group = GA)
+demandCol    = input.color(#26a69a, "Demand colour", group = GA)
+pointOff     = input.float(0.35, "Point marker offset (ATR)", minval = 0, step = 0.05, group = GA)
+lineWidth    = input.int(2, "Active line width", minval = 1, maxval = 4, group = GA)
+
+// ------------------------------------------------------------------- helpers --
+f_true_high() =>
+    math.max(high, nz(close[1], high))
+
+f_true_low() =>
+    math.min(low, nz(close[1], low))
+
+f_line_value(float y1, int x1, float y2, int x2, int atBar) =>
+    // Linear interpolation / extrapolation of a line defined by two bars.
+    float dx = x2 - x1
+    dx == 0 ? y2 : y1 + (y2 - y1) * (atBar - x1) / dx
+
+f_is_td_high(int level) =>
+    bool ok = true
+    for i = 1 to level
+        ok := ok and high[level] > high[level - i] and high[level] > high[level + i]
+    ok
+
+f_is_td_low(int level) =>
+    bool ok = true
+    for i = 1 to level
+        ok := ok and low[level] < low[level - i] and low[level] < low[level + i]
+    ok
+
+// ---------------------------------------------------------------- TD Points --
+// Confirmation arrives `tdLevel` bars after the pivot, so the pivot itself sits
+// at bar_index - tdLevel when the test succeeds on the current bar.
+var array<int>   highBars  = array.new_int()
+var array<float> highPrices = array.new_float()
+var array<int>   lowBars   = array.new_int()
+var array<float> lowPrices = array.new_float()
+
+atr = ta.atr(14)
+pivotBar = bar_index - tdLevel
+
+if bar_index >= tdLevel * 2 and f_is_td_high(tdLevel)
+    array.push(highBars, pivotBar)
+    array.push(highPrices, high[tdLevel])
+    if markPoints
+        label.new(pivotBar, high[tdLevel] + atr * pointOff, "H",
+             style = label.style_label_down, color = color.new(supplyCol, 30),
+             textcolor = color.white, size = size.tiny)
+
+if bar_index >= tdLevel * 2 and f_is_td_low(tdLevel)
+    array.push(lowBars, pivotBar)
+    array.push(lowPrices, low[tdLevel])
+    if markPoints
+        label.new(pivotBar, low[tdLevel] - atr * pointOff, "L",
+             style = label.style_label_up, color = color.new(demandCol, 30),
+             textcolor = color.white, size = size.tiny)
+
+// Cap history so TradingView line/label budgets stay healthy.
+f_trim(array<int> bars, array<float> prices, int keep) =>
+    while array.size(bars) > keep
+        array.shift(bars)
+        array.shift(prices)
+
+f_trim(highBars, highPrices, 40)
+f_trim(lowBars, lowPrices, 40)
+
+// ----------------------------------------------------------- active TD Lines --
+var line supplyLine = na
+var line demandLine = na
+var array<line> oldLines = array.new_line()
+
+var int   sX1 = na
+var float sY1 = na
+var int   sX2 = na
+var float sY2 = na
+var int   dX1 = na
+var float dY1 = na
+var int   dX2 = na
+var float dY2 = na
+
+var int lastSupplyKey = na
+var int lastDemandKey = na
+
+f_retire(line ln, color col) =>
+    if not na(ln)
+        if showOlder
+            line.set_color(ln, color.new(col, 75))
+            line.set_width(ln, 1)
+            line.set_extend(ln, extend.none)
+            array.push(oldLines, ln)
+            while array.size(oldLines) > 12
+                line.delete(array.shift(oldLines))
+        else
+            line.delete(ln)
+
+nHigh = array.size(highBars)
+nLow  = array.size(lowBars)
+
+if showSupply and nHigh >= 2
+    // Most recent TD Point high is index n-1; previous is n-2. Right-to-left.
+    int hx2 = array.get(highBars, nHigh - 1)
+    float hy2 = array.get(highPrices, nHigh - 1)
+    int hx1 = array.get(highBars, nHigh - 2)
+    float hy1 = array.get(highPrices, nHigh - 2)
+    int key = hx1 * 100000 + hx2
+    if na(lastSupplyKey) or key != lastSupplyKey
+        f_retire(supplyLine, supplyCol)
+        supplyLine := line.new(hx1, hy1, hx2, hy2,
+             xloc = xloc.bar_index, extend = extend.right,
+             color = supplyCol, width = lineWidth, style = line.style_solid)
+        lastSupplyKey := key
+        sX1 := hx1
+        sY1 := hy1
+        sX2 := hx2
+        sY2 := hy2
+    else if not na(supplyLine)
+        // Keep the right end tied to the most recent confirmed point and let
+        // extend.right carry the ray forward.
+        line.set_xy1(supplyLine, hx1, hy1)
+        line.set_xy2(supplyLine, hx2, hy2)
+        sX1 := hx1
+        sY1 := hy1
+        sX2 := hx2
+        sY2 := hy2
+
+if showDemand and nLow >= 2
+    int lx2 = array.get(lowBars, nLow - 1)
+    float ly2 = array.get(lowPrices, nLow - 1)
+    int lx1 = array.get(lowBars, nLow - 2)
+    float ly1 = array.get(lowPrices, nLow - 2)
+    int key = lx1 * 100000 + lx2
+    if na(lastDemandKey) or key != lastDemandKey
+        f_retire(demandLine, demandCol)
+        demandLine := line.new(lx1, ly1, lx2, ly2,
+             xloc = xloc.bar_index, extend = extend.right,
+             color = demandCol, width = lineWidth, style = line.style_solid)
+        lastDemandKey := key
+        dX1 := lx1
+        dY1 := ly1
+        dX2 := lx2
+        dY2 := ly2
+    else if not na(demandLine)
+        line.set_xy1(demandLine, lx1, ly1)
+        line.set_xy2(demandLine, lx2, ly2)
+        dX1 := lx1
+        dY1 := ly1
+        dX2 := lx2
+        dY2 := ly2
+
+// Optional hard stop on how far the active ray is drawn past the last point.
+// Pine's extend.right already goes forever; we also store extendRight for the
+// projection helpers and for a clipped ghost ray when desired.
+if extendRight > 0 and not na(supplyLine) and not na(sX2)
+    line.set_xy2(supplyLine, sX2, sY2)
+    line.set_extend(supplyLine, extend.right)
+if extendRight > 0 and not na(demandLine) and not na(dX2)
+    line.set_xy2(demandLine, dX2, dY2)
+    line.set_extend(demandLine, extend.right)
+
+// -------------------------------------------------------------- projections --
+f_supply_projection(int x1, float y1, int x2, float y2, int breakBar) =>
+    // Largest gap from the Supply Line down to a low between the two TD Points.
+    float maxGap = 0.0
+    int fromBar = math.min(x1, x2)
+    int toBar = math.max(x1, x2)
+    int span = math.max(toBar - fromBar, 0)
+    for j = 0 to span
+        int b = fromBar + j
+        int off = bar_index - b
+        if off >= 0
+            float lv = f_line_value(y1, x1, y2, x2, b)
+            float gap = lv - low[off]
+            if gap > maxGap
+                maxGap := gap
+    float lineAtBreak = f_line_value(y1, x1, y2, x2, breakBar)
+    lineAtBreak + maxGap
+
+f_demand_projection(int x1, float y1, int x2, float y2, int breakBar) =>
+    float maxGap = 0.0
+    int fromBar = math.min(x1, x2)
+    int toBar = math.max(x1, x2)
+    int span = math.max(toBar - fromBar, 0)
+    for j = 0 to span
+        int b = fromBar + j
+        int off = bar_index - b
+        if off >= 0
+            float lv = f_line_value(y1, x1, y2, x2, b)
+            float gap = high[off] - lv
+            if gap > maxGap
+                maxGap := gap
+    float lineAtBreak = f_line_value(y1, x1, y2, x2, breakBar)
+    lineAtBreak - maxGap
+// ----------------------------------------------------- breakout / qualifiers --
+var line   projLine = na
+var label  projLbl  = na
+var float  lastProj = na
+
+th = f_true_high()
+tl = f_true_low()
+th1 = f_true_high()[1]
+tl1 = f_true_low()[1]
+th2 = f_true_high()[2]
+tl2 = f_true_low()[2]
+
+buyPress1  = close[1] - tl1          // prior bar buying pressure
+sellPress1 = th1 - close[1]          // prior bar selling pressure
+
+supplyActive = showSupply and not na(sX1) and not na(sX2) and bar_index > sX2
+demandActive = showDemand and not na(dX1) and not na(dX2) and bar_index > dX2
+
+supplyNow  = supplyActive ? f_line_value(sY1, sX1, sY2, sX2, bar_index) : na
+supplyPrev = supplyActive ? f_line_value(sY1, sX1, sY2, sX2, bar_index - 1) : na
+demandNow  = demandActive ? f_line_value(dY1, dX1, dY2, dX2, bar_index) : na
+demandPrev = demandActive ? f_line_value(dY1, dX1, dY2, dX2, bar_index - 1) : na
+
+// Break = close crosses from the correct side of the line to the other.
+upBreak = supplyActive and not na(supplyPrev) and close[1] <= supplyPrev and close > supplyNow
+dnBreak = demandActive and not na(demandPrev) and close[1] >= demandPrev and close < demandNow
+
+// Qualifiers for an upside Supply break.
+q1Up = close > th1
+q2Up = open > supplyNow
+q3Up = (close[1] + buyPress1) < supplyNow
+q4Up = close > math.max(th1, th2) and supplyNow < th1
+upQualified = q1Up or q2Up or q3Up or q4Up
+
+// Qualifiers for a downside Demand break.
+q1Dn = close < tl1
+q2Dn = open < demandNow
+q3Dn = (close[1] - sellPress1) > demandNow
+q4Dn = close < math.min(tl1, tl2) and demandNow > tl1
+dnQualified = q1Dn or q2Dn or q3Dn or q4Dn
+
+if upBreak and showQual
+    if upQualified
+        label.new(bar_index, high + atr * pointOff, "Q↑",
+             style = label.style_label_down, color = supplyCol,
+             textcolor = color.white, size = size.small,
+             tooltip = "Qualified upside break of TD Supply\nQ1=" + str.tostring(q1Up) +
+                  " Q2=" + str.tostring(q2Up) + " Q3=" + str.tostring(q3Up) +
+                  " Q4=" + str.tostring(q4Up))
+        if showProj
+            float tgt = f_supply_projection(sX1, sY1, sX2, sY2, bar_index)
+            lastProj := tgt
+            if not na(projLine)
+                line.delete(projLine)
+            if not na(projLbl)
+                label.delete(projLbl)
+            projLine := line.new(bar_index, tgt, bar_index + projBars, tgt,
+                 xloc = xloc.bar_index, color = color.new(supplyCol, 20),
+                 width = 1, style = line.style_dotted)
+            projLbl := label.new(bar_index + projBars, tgt, "Proj " + str.tostring(tgt, format.mintick),
+                 style = label.style_label_left, color = color.new(supplyCol, 20),
+                 textcolor = color.white, size = size.small)
+    else
+        label.new(bar_index, high + atr * pointOff, fadeDisqual ? "DQ↑ fade" : "DQ↑",
+             style = label.style_label_down, color = color.new(color.orange, 10),
+             textcolor = color.white, size = size.small,
+             tooltip = "Disqualified upside break of TD Supply — no qualifier fired")
+
+if dnBreak and showQual
+    if dnQualified
+        label.new(bar_index, low - atr * pointOff, "Q↓",
+             style = label.style_label_up, color = demandCol,
+             textcolor = color.white, size = size.small,
+             tooltip = "Qualified downside break of TD Demand\nQ1=" + str.tostring(q1Dn) +
+                  " Q2=" + str.tostring(q2Dn) + " Q3=" + str.tostring(q3Dn) +
+                  " Q4=" + str.tostring(q4Dn))
+        if showProj
+            float tgt = f_demand_projection(dX1, dY1, dX2, dY2, bar_index)
+            lastProj := tgt
+            if not na(projLine)
+                line.delete(projLine)
+            if not na(projLbl)
+                label.delete(projLbl)
+            projLine := line.new(bar_index, tgt, bar_index + projBars, tgt,
+                 xloc = xloc.bar_index, color = color.new(demandCol, 20),
+                 width = 1, style = line.style_dotted)
+            projLbl := label.new(bar_index + projBars, tgt, "Proj " + str.tostring(tgt, format.mintick),
+                 style = label.style_label_left, color = color.new(demandCol, 20),
+                 textcolor = color.white, size = size.small)
+    else
+        label.new(bar_index, low - atr * pointOff, fadeDisqual ? "DQ↓ fade" : "DQ↓",
+             style = label.style_label_up, color = color.new(color.orange, 10),
+             textcolor = color.white, size = size.small,
+             tooltip = "Disqualified downside break of TD Demand — no qualifier fired")
+
+// ------------------------------------------------------------------ status --
+var table panel = table.new(position.top_right, 2, 5, bgcolor = color.new(color.black, 75),
+     border_width = 1, border_color = color.new(color.gray, 50))
+
+if barstate.islast
+    table.cell(panel, 0, 0, "TD Lines", text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 0, "L" + str.tostring(tdLevel), text_color = color.gray, text_size = size.small)
+    table.cell(panel, 0, 1, "Supply", text_color = supplyCol, text_size = size.small)
+    table.cell(panel, 1, 1, na(supplyNow) ? "—" : str.tostring(supplyNow, format.mintick),
+         text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 2, "Demand", text_color = demandCol, text_size = size.small)
+    table.cell(panel, 1, 2, na(demandNow) ? "—" : str.tostring(demandNow, format.mintick),
+         text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 3, "Points H/L", text_color = color.gray, text_size = size.small)
+    table.cell(panel, 1, 3, str.tostring(nHigh) + " / " + str.tostring(nLow),
+         text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 4, "Last proj", text_color = color.gray, text_size = size.small)
+    table.cell(panel, 1, 4, na(lastProj) ? "—" : str.tostring(lastProj, format.mintick),
+         text_color = color.white, text_size = size.small)
+
+// -------------------------------------------------------------------- alerts --
+alertcondition(upBreak and upQualified, "Qualified Supply break",
+     "Qualified upside break of TD Supply on {{ticker}} {{interval}}")
+alertcondition(dnBreak and dnQualified, "Qualified Demand break",
+     "Qualified downside break of TD Demand on {{ticker}} {{interval}}")
+alertcondition(upBreak and not upQualified, "Disqualified Supply break",
+     "Disqualified upside break of TD Supply on {{ticker}} {{interval}}")
+alertcondition(dnBreak and not dnQualified, "Disqualified Demand break",
+     "Disqualified downside break of TD Demand on {{ticker}} {{interval}}")
+alertcondition(upBreak and not upQualified and fadeDisqual, "Fade Supply break",
+     "Fade candidate: disqualified upside break of TD Supply on {{ticker}} {{interval}}")
+alertcondition(dnBreak and not dnQualified and fadeDisqual, "Fade Demand break",
+     "Fade candidate: disqualified downside break of TD Demand on {{ticker}} {{interval}}")
