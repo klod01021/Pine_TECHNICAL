@@ -50,7 +50,7 @@ GA = "Appearance"
 GD = "Chart display"
 
 chartMode = input.string("Classic", "How much to show", options = ["Classic", "Full", "Simple", "Signals only", "Custom"], group = GD,
-                          tooltip = "Classic (default): the usual DeMark look — plain 1-9 setup counts close to the bars, plain 1-13 countdown counts one row out, TDST lines, no buy/sell labels. Full: same counts plus extras. Simple: only late counts. Signals only: markers and entries, no numbers. Custom: use the settings below.")
+                          tooltip = "Classic (default): the usual DeMark look - plain 1-9 setup counts close to the bars, plain 1-13 countdown counts one row out, TDST lines, no buy/sell labels. Full: same counts plus extras. Simple: only late counts. Signals only: markers and entries, no numbers. Custom: use the settings below.")
 
 showSetup    = input.bool(true, "Custom: show setup counts", group = GS)
 minCount     = input.int(1, "Custom: start plotting setup counts at", minval = 1, maxval = 9, group = GS,
@@ -99,15 +99,12 @@ classicMode = chartMode == "Classic"
 signalsOnly = chartMode == "Signals only"
 simpleMode  = chartMode == "Simple"
 fullMode    = chartMode == "Full"
-eShowSetup  = signalsOnly ? false : classicMode or simpleMode or fullMode ? true : showSetup
-eShowCD     = signalsOnly ? false : classicMode or simpleMode or fullMode ? true : showCD
-eMinSetup   = simpleMode ? 8 : classicMode or fullMode ? 1 : minCount
-eMinCD      = simpleMode ? 11 : classicMode or fullMode ? 1 : minCDCount
-eSetupStyle = classicMode ? "Plain" : simpleMode ? "Prefixed S" : setupStyle
-eCdStyle    = classicMode ? "Plain" : simpleMode ? "Prefixed C" : cdStyle
-eCountSize  = size.tiny
-eMarkSize   = classicMode ? size.tiny : size.small
-e13Text     = classicMode ? "13" : "CD13"
+eShowSetup  = signalsOnly ? false : (classicMode or simpleMode or fullMode ? true : showSetup)
+eShowCD     = signalsOnly ? false : (classicMode or simpleMode or fullMode ? true : showCD)
+eMinSetup   = simpleMode ? 8 : (classicMode or fullMode ? 1 : minCount)
+eMinCD      = simpleMode ? 11 : (classicMode or fullMode ? 1 : minCDCount)
+eSetupStyle = classicMode ? "Plain" : (simpleMode ? "Prefixed S" : setupStyle)
+eCdStyle    = classicMode ? "Plain" : (simpleMode ? "Prefixed C" : cdStyle)
 eSetupOff   = classicMode ? 0.25 : setupOff
 eCdOff      = classicMode ? 0.85 : cdOff
 eEntryOff   = classicMode ? 1.6 : entryOff
@@ -130,15 +127,52 @@ cdSellY    = high + atr14 * eCdOff
 entryBuyY  = low - atr14 * eEntryOff
 entrySellY = high + atr14 * eEntryOff
 
-var array<string> CIRCLED = array.from("①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩", "⑪", "⑫", "⑬", "⑭", "⑮", "⑯", "⑰", "⑱", "⑲", "⑳")
-
-f_count(int n, string style, string prefix, array<string> glyphs) =>
-    string out = str.tostring(n)
-    if style == "Circled" and n >= 1 and n <= 20
-        out := array.get(glyphs, n - 1)
+f_count(n, style, prefix) =>
+    txt = str.tostring(n)
+    if style == "Circled"
+        if n == 1
+            txt := "①"
+        else if n == 2
+            txt := "②"
+        else if n == 3
+            txt := "③"
+        else if n == 4
+            txt := "④"
+        else if n == 5
+            txt := "⑤"
+        else if n == 6
+            txt := "⑥"
+        else if n == 7
+            txt := "⑦"
+        else if n == 8
+            txt := "⑧"
+        else if n == 9
+            txt := "⑨"
+        else if n == 10
+            txt := "⑩"
+        else if n == 11
+            txt := "⑪"
+        else if n == 12
+            txt := "⑫"
+        else if n == 13
+            txt := "⑬"
+        else if n == 14
+            txt := "⑭"
+        else if n == 15
+            txt := "⑮"
+        else if n == 16
+            txt := "⑯"
+        else if n == 17
+            txt := "⑰"
+        else if n == 18
+            txt := "⑱"
+        else if n == 19
+            txt := "⑲"
+        else if n == 20
+            txt := "⑳"
     else if style != "Plain"
-        out := prefix + out
-    out
+        txt := prefix + txt
+    txt
 
 // ------------------------------------------------------------ TD Price Flip --
 ready    = bar_index >= 5
@@ -459,31 +493,33 @@ plotshape((showTrades and exitTgt) ? posTarget : na, "Target reached", shape.squ
 
 // ------------------------------------------------------------------ plotting --
 if eShowSetup and buySetup >= eMinSetup
-    label.new(bar_index, setupBuyY, f_count(buySetup, eSetupStyle, "S", CIRCLED), style = label.style_none, textcolor = buySetupDone ? bullCol : color.new(bullCol, 30), size = eCountSize)
+    label.new(bar_index, setupBuyY, f_count(buySetup, eSetupStyle, "S"), style = label.style_none, textcolor = buySetupDone ? bullCol : color.new(bullCol, 30), size = size.tiny)
 
 if eShowSetup and sellSetup >= eMinSetup
-    label.new(bar_index, setupSellY, f_count(sellSetup, eSetupStyle, "S", CIRCLED), style = label.style_none, textcolor = sellSetupDone ? bearCol : color.new(bearCol, 30), size = eCountSize)
+    label.new(bar_index, setupSellY, f_count(sellSetup, eSetupStyle, "S"), style = label.style_none, textcolor = sellSetupDone ? bearCol : color.new(bearCol, 30), size = size.tiny)
 
 // 13 itself is drawn by the plotshape below, so it is skipped here.
 if eShowCD and buyCDPrint >= eMinCD and not buyCD13
-    label.new(bar_index, cdBuyY, f_count(buyCDPrint, eCdStyle, "C", CIRCLED), style = label.style_none, textcolor = color.new(cdBullCol, classicMode ? 0 : 20), size = eCountSize)
+    label.new(bar_index, cdBuyY, f_count(buyCDPrint, eCdStyle, "C"), style = label.style_none, textcolor = color.new(cdBullCol, classicMode ? 0 : 20), size = size.tiny)
 
 if eShowCD and sellCDPrint >= eMinCD and not sellCD13
-    label.new(bar_index, cdSellY, f_count(sellCDPrint, eCdStyle, "C", CIRCLED), style = label.style_none, textcolor = color.new(cdBearCol, classicMode ? 0 : 20), size = eCountSize)
+    label.new(bar_index, cdSellY, f_count(sellCDPrint, eCdStyle, "C"), style = label.style_none, textcolor = color.new(cdBearCol, classicMode ? 0 : 20), size = size.tiny)
 
 deferTxt = eCdStyle == "Plain" ? "+" : "C+"
 if eShowCD and buyCDDefer
-    label.new(bar_index, cdBuyY, deferTxt, style = label.style_none, textcolor = color.new(cdBullCol, classicMode ? 0 : 20), size = eCountSize)
+    label.new(bar_index, cdBuyY, deferTxt, style = label.style_none, textcolor = color.new(cdBullCol, classicMode ? 0 : 20), size = size.tiny)
 
 if eShowCD and sellCDDefer
-    label.new(bar_index, cdSellY, deferTxt, style = label.style_none, textcolor = color.new(cdBearCol, classicMode ? 0 : 20), size = eCountSize)
+    label.new(bar_index, cdSellY, deferTxt, style = label.style_none, textcolor = color.new(cdBearCol, classicMode ? 0 : 20), size = size.tiny)
 
-plotshape(buySetupDone, "Buy setup 9", shape.triangleup, location.belowbar, bullCol, size = eMarkSize)
-plotshape(sellSetupDone, "Sell setup 9", shape.triangledown, location.abovebar, bearCol, size = eMarkSize)
-plotshape(showPerf and buyPerfected, "Buy setup perfected", shape.diamond, location.belowbar, bullCol, size = eMarkSize)
-plotshape(showPerf and sellPerfected, "Sell setup perfected", shape.diamond, location.abovebar, bearCol, size = eMarkSize)
-plotshape(buyCD13, "Buy countdown 13", shape.labelup, location.belowbar, bullCol, text = e13Text, textcolor = color.white, size = eMarkSize)
-plotshape(sellCD13, "Sell countdown 13", shape.labeldown, location.abovebar, bearCol, text = e13Text, textcolor = color.white, size = eMarkSize)
+plotshape(buySetupDone, "Buy setup 9", shape.triangleup, location.belowbar, bullCol, size = size.tiny)
+plotshape(sellSetupDone, "Sell setup 9", shape.triangledown, location.abovebar, bearCol, size = size.tiny)
+plotshape(showPerf and buyPerfected, "Buy setup perfected", shape.diamond, location.belowbar, bullCol, size = size.tiny)
+plotshape(showPerf and sellPerfected, "Sell setup perfected", shape.diamond, location.abovebar, bearCol, size = size.tiny)
+if buyCD13
+    label.new(bar_index, cdBuyY, classicMode ? "13" : "CD13", style = label.style_label_up, color = bullCol, textcolor = color.white, size = size.tiny)
+if sellCD13
+    label.new(bar_index, cdSellY, classicMode ? "13" : "CD13", style = label.style_label_down, color = bearCol, textcolor = color.white, size = size.tiny)
 
 // ------------------------------------------------------------------- alerts --
 alertcondition(buySetupDone, "TD buy setup 9", "TD buy setup completed on {{ticker}} {{interval}}")

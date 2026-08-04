@@ -4,12 +4,14 @@ Pine Script (v6) technical indicators for TradingView, currently a set of DeMark
 
 | File | Indicator | Pane |
 | --- | --- | --- |
-| [`demark_9_13.pine`](demark_9_13.pine) | Sequential **and** Combo countdowns, TDST, Risk Levels and Zones, 9-13-9, buy/sell entries | Overlay |
-| [`demark_td_sequential.pine`](demark_td_sequential.pine) | TD Sequential only: setup, countdown, TDST, buy/sell entries on a 13 | Overlay |
+| [`demark_sequential_classic.pine`](demark_sequential_classic.pine) | Classic TD Sequential look (plain 1-9 / 1-13 + TDST) | Overlay |
+| [`demark_9_13.pine`](demark_9_13.pine) | Sequential **and** Combo, TDST, Risk Levels, optional entries | Overlay |
+| [`demark_td_sequential.pine`](demark_td_sequential.pine) | TD Sequential reference with the same display modes | Overlay |
 | [`demarker_oscillator.pine`](demarker_oscillator.pine) | DeMarker (DeM) exhaustion oscillator | Separate |
 
-Start with `demark_9_13.pine`; it is the complete one. The plain TD Sequential
-script is kept as a smaller, easier-to-read reference implementation.
+Start with `demark_sequential_classic.pine` if you want the usual DeMark chart
+with the least clutter. Use `demark_9_13.pine` when you need Combo, risk levels
+or buy/sell markers.
 
 ## About the licensed DeMARK indicators
 
@@ -25,7 +27,7 @@ books, principally *The New Science of Technical Analysis* and Jason Perl's
 independent implementation from those published rules. Per its product page, the
 paid DeMARK 9-13 study consists of the 9 Setup, the 13 Countdown, TD Setup Trend
 (TDST), Perfected Setups, and Risk Levels and Zones, drawn from both the
-Sequential and Combo families — `demark_9_13.pine` covers that same ground.
+Sequential and Combo families - `demark_9_13.pine` covers that same ground.
 
 Two honest caveats. First, the licensed product is the reference implementation
 and the vendor has publicly said third-party versions contain mistakes; treat
@@ -215,7 +217,7 @@ so a second signal in the same direction is ignored rather than added to.
 
 ### Chart legend
 
-The default is **Classic** display mode — the usual DeMark Sequential look:
+The default is **Classic** display mode - the usual DeMark Sequential look:
 
 - Plain digits `1`…`9` for the setup, close to the bars
 - Plain digits `1`…`13` for the countdown, one row further out (lighter green/red)

@@ -1,0 +1,190 @@
+//@version=6
+// =============================================================================
+//  TD Sequential - Classic look
+//  Plain 1-9 setup counts, plain 1-13 countdown counts, TDST lines.
+//  Minimal script meant to match the usual DeMark Sequential chart.
+// =============================================================================
+
+indicator("TD Sequential Classic", "TD Classic", overlay = true, max_labels_count = 500, max_lines_count = 500)
+
+showSetup = input.bool(true, "Show setup counts")
+showCD    = input.bool(true, "Show countdown counts")
+showTDST  = input.bool(true, "Show TDST")
+showPerf  = input.bool(true, "Mark perfected setups")
+bullCol   = input.color(#00c853, "Buy colour")
+bearCol   = input.color(#ff1744, "Sell colour")
+
+atrOff = nz(ta.atr(14), high - low)
+setupBuyY  = low  - atrOff * 0.25
+setupSellY = high + atrOff * 0.25
+cdBuyY     = low  - atrOff * 0.85
+cdSellY    = high + atrOff * 0.85
+
+pc = nz(close[1], close)
+th = math.max(high, pc)
+tl = math.min(low, pc)
+
+ready    = bar_index >= 5
+buyCond  = ready and close < close[4]
+sellCond = ready and close > close[4]
+bearFlip = buyCond and close[1] > close[5]
+bullFlip = sellCond and close[1] < close[5]
+
+var int buySetup  = 0
+var int sellSetup = 0
+buySetup  := bearFlip ? 1 : buySetup > 0 and buySetup < 9 and buyCond ? buySetup + 1 : 0
+sellSetup := bullFlip ? 1 : sellSetup > 0 and sellSetup < 9 and sellCond ? sellSetup + 1 : 0
+
+buy9  = buySetup == 9
+sell9 = sellSetup == 9
+
+var float buyPerfLevel  = na
+var int   buyPerfLeft   = 0
+var float sellPerfLevel = na
+var int   sellPerfLeft  = 0
+bool buyPerfected  = false
+bool sellPerfected = false
+
+if buy9
+    buyPerfLevel := math.min(low[2], low[3])
+    if math.min(low, low[1]) <= buyPerfLevel
+        buyPerfected := true
+        buyPerfLeft  := 0
+    else
+        buyPerfLeft := 8
+else if buyPerfLeft > 0
+    if low <= buyPerfLevel
+        buyPerfected := true
+        buyPerfLeft  := 0
+    else
+        buyPerfLeft := buyPerfLeft - 1
+
+if sell9
+    sellPerfLevel := math.max(high[2], high[3])
+    if math.max(high, high[1]) >= sellPerfLevel
+        sellPerfected := true
+        sellPerfLeft  := 0
+    else
+        sellPerfLeft := 8
+else if sellPerfLeft > 0
+    if high >= sellPerfLevel
+        sellPerfected := true
+        sellPerfLeft  := 0
+    else
+        sellPerfLeft := sellPerfLeft - 1
+
+hh9 = ta.highest(th, 9)
+ll9 = ta.lowest(tl, 9)
+var float tdstRes = na
+var float tdstSup = na
+var bool  tdstResOn = false
+var bool  tdstSupOn = false
+var line  tdstResLn = na
+var line  tdstSupLn = na
+
+if buy9
+    tdstRes   := hh9
+    tdstResOn := true
+    if showTDST
+        tdstResLn := line.new(bar_index - 8, tdstRes, bar_index, tdstRes, color = bearCol, style = line.style_dashed)
+if sell9
+    tdstSup   := ll9
+    tdstSupOn := true
+    if showTDST
+        tdstSupLn := line.new(bar_index - 8, tdstSup, bar_index, tdstSup, color = bullCol, style = line.style_dashed)
+
+if tdstResOn and not na(tdstResLn)
+    line.set_x2(tdstResLn, bar_index)
+if tdstSupOn and not na(tdstSupLn)
+    line.set_x2(tdstSupLn, bar_index)
+if tdstResOn and close > tdstRes
+    tdstResOn := false
+if tdstSupOn and close < tdstSup
+    tdstSupOn := false
+
+var int   buyCD   = 0
+var int   sellCD  = 0
+var bool  buyCDOn = false
+var bool  sellCDOn = false
+var float buyCD8  = na
+var float sellCD8 = na
+int  buyCDPrint  = 0
+int  sellCDPrint = 0
+bool buyCD13     = false
+bool sellCD13    = false
+bool buyCDDefer  = false
+bool sellCDDefer = false
+
+if sell9
+    buyCDOn := false
+    buyCD   := 0
+    buyCD8  := na
+if buy9
+    sellCDOn := false
+    sellCD   := 0
+    sellCD8  := na
+if buy9
+    buyCDOn := true
+    buyCD   := 0
+    buyCD8  := na
+if sell9
+    sellCDOn := true
+    sellCD   := 0
+    sellCD8  := na
+
+if buyCDOn and bar_index >= 2 and close <= low[2]
+    if buyCD == 12 and not na(buyCD8) and low > buyCD8
+        buyCDDefer := true
+    else
+        buyCD      := buyCD + 1
+        buyCDPrint := buyCD
+        if buyCD == 8
+            buyCD8 := close
+        if buyCD == 13
+            buyCD13 := true
+            buyCDOn := false
+            buyCD   := 0
+            buyCD8  := na
+
+if sellCDOn and bar_index >= 2 and close >= high[2]
+    if sellCD == 12 and not na(sellCD8) and high < sellCD8
+        sellCDDefer := true
+    else
+        sellCD      := sellCD + 1
+        sellCDPrint := sellCD
+        if sellCD == 8
+            sellCD8 := close
+        if sellCD == 13
+            sellCD13 := true
+            sellCDOn := false
+            sellCD   := 0
+            sellCD8  := na
+
+if showSetup and buySetup > 0
+    label.new(bar_index, setupBuyY, str.tostring(buySetup), style = label.style_none, textcolor = buy9 ? bullCol : color.new(bullCol, 35), size = size.tiny)
+if showSetup and sellSetup > 0
+    label.new(bar_index, setupSellY, str.tostring(sellSetup), style = label.style_none, textcolor = sell9 ? bearCol : color.new(bearCol, 35), size = size.tiny)
+
+if showCD and buyCDPrint > 0 and not buyCD13
+    label.new(bar_index, cdBuyY, str.tostring(buyCDPrint), style = label.style_none, textcolor = color.new(bullCol, 15), size = size.tiny)
+if showCD and sellCDPrint > 0 and not sellCD13
+    label.new(bar_index, cdSellY, str.tostring(sellCDPrint), style = label.style_none, textcolor = color.new(bearCol, 15), size = size.tiny)
+if showCD and buyCDDefer
+    label.new(bar_index, cdBuyY, "+", style = label.style_none, textcolor = color.new(bullCol, 15), size = size.tiny)
+if showCD and sellCDDefer
+    label.new(bar_index, cdSellY, "+", style = label.style_none, textcolor = color.new(bearCol, 15), size = size.tiny)
+
+plotshape(buy9, "Buy setup 9", shape.triangleup, location.belowbar, bullCol, size = size.tiny)
+plotshape(sell9, "Sell setup 9", shape.triangledown, location.abovebar, bearCol, size = size.tiny)
+plotshape(showPerf and buyPerfected, "Buy perfected", shape.diamond, location.belowbar, bullCol, size = size.tiny)
+plotshape(showPerf and sellPerfected, "Sell perfected", shape.diamond, location.abovebar, bearCol, size = size.tiny)
+
+if buyCD13
+    label.new(bar_index, cdBuyY, "13", style = label.style_label_up, color = bullCol, textcolor = color.white, size = size.tiny)
+if sellCD13
+    label.new(bar_index, cdSellY, "13", style = label.style_label_down, color = bearCol, textcolor = color.white, size = size.tiny)
+
+alertcondition(buy9, "Buy setup 9", "TD buy setup 9 on {{ticker}}")
+alertcondition(sell9, "Sell setup 9", "TD sell setup 9 on {{ticker}}")
+alertcondition(buyCD13, "Buy countdown 13", "TD buy countdown 13 on {{ticker}}")
+alertcondition(sellCD13, "Sell countdown 13", "TD sell countdown 13 on {{ticker}}")
