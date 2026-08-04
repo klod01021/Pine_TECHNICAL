@@ -78,22 +78,14 @@ confirmRule = input.string("Price flip", "Custom: confirmation", options = ["Pri
 flipWindow  = input.int(12, "Custom: bars to wait for confirmation", minval = 1, maxval = 60, group = GE)
 showStopTgt = input.bool(false, "Draw stop and target while in a trade", group = GE)
 
-showTDST     = input.bool(true, "Show TDST support / resistance", group = GT)
-tdstStyleIn  = input.string("Dashed", "Line style", options = ["Solid", "Dashed", "Dotted"], group = GT)
-tdstWidth    = input.int(1, "Line width", minval = 1, maxval = 4, group = GT)
+showTDST  = input.bool(true, "Show TDST support / resistance", group = GT)
+tdstWidth = input.int(1, "Line width", minval = 1, maxval = 4, group = GT)
 
-setupStyle   = input.string("Plain", "Setup count style", options = ["Plain", "Prefixed S", "Circled"], group = GA,
-                             tooltip = "Classic DeMark charts use plain digits. Prefixed S/C or circled digits are optional.")
-cdStyle      = input.string("Plain", "Countdown count style", options = ["Plain", "Prefixed C", "Circled"], group = GA)
-bullCol      = input.color(#00c853, "Buy side colour", group = GA)
-bearCol      = input.color(#ff1744, "Sell side colour", group = GA)
-cdBullCol    = input.color(#69f0ae, "Buy countdown count colour", group = GA)
-cdBearCol    = input.color(#ff8a80, "Sell countdown count colour", group = GA)
-setupOff     = input.float(0.25, "Setup count row (ATR)", minval = 0, step = 0.05, group = GA)
-cdOff        = input.float(0.85, "Countdown count row (ATR)", minval = 0, step = 0.05, group = GA)
-entryOff     = input.float(1.6, "Entry label row (ATR)", minval = 0, step = 0.1, group = GA)
-
-tdstStyle = tdstStyleIn == "Solid" ? line.style_solid : tdstStyleIn == "Dashed" ? line.style_dashed : line.style_dotted
+bullCol   = input.color(#00c853, "Buy side colour", group = GA)
+bearCol   = input.color(#ff1744, "Sell side colour", group = GA)
+cdBullCol = input.color(#69f0ae, "Buy countdown count colour", group = GA)
+cdBearCol = input.color(#ff8a80, "Sell countdown count colour", group = GA)
+entryOff  = input.float(1.6, "Entry label row (ATR)", minval = 0, step = 0.1, group = GA)
 
 classicMode = chartMode == "Classic"
 signalsOnly = chartMode == "Signals only"
@@ -103,10 +95,6 @@ eShowSetup  = signalsOnly ? false : (classicMode or simpleMode or fullMode ? tru
 eShowCD     = signalsOnly ? false : (classicMode or simpleMode or fullMode ? true : showCD)
 eMinSetup   = simpleMode ? 8 : (classicMode or fullMode ? 1 : minCount)
 eMinCD      = simpleMode ? 11 : (classicMode or fullMode ? 1 : minCDCount)
-eSetupStyle = classicMode ? "Plain" : (simpleMode ? "Prefixed S" : setupStyle)
-eCdStyle    = classicMode ? "Plain" : (simpleMode ? "Prefixed C" : cdStyle)
-eSetupOff   = classicMode ? 0.25 : setupOff
-eCdOff      = classicMode ? 0.85 : cdOff
 eEntryOff   = classicMode ? 1.6 : entryOff
 
 // ---------------------------------------------------------------- utilities --
@@ -120,59 +108,8 @@ hh9       = ta.highest(trueHigh, 9)
 ll9       = ta.lowest(trueLow, 9)
 atr14     = nz(ta.atr(14), high - low)
 
-setupBuyY  = low - atr14 * eSetupOff
-setupSellY = high + atr14 * eSetupOff
-cdBuyY     = low - atr14 * eCdOff
-cdSellY    = high + atr14 * eCdOff
 entryBuyY  = low - atr14 * eEntryOff
 entrySellY = high + atr14 * eEntryOff
-
-f_count(n, style, prefix) =>
-    txt = str.tostring(n)
-    if style == "Circled"
-        if n == 1
-            txt := "①"
-        else if n == 2
-            txt := "②"
-        else if n == 3
-            txt := "③"
-        else if n == 4
-            txt := "④"
-        else if n == 5
-            txt := "⑤"
-        else if n == 6
-            txt := "⑥"
-        else if n == 7
-            txt := "⑦"
-        else if n == 8
-            txt := "⑧"
-        else if n == 9
-            txt := "⑨"
-        else if n == 10
-            txt := "⑩"
-        else if n == 11
-            txt := "⑪"
-        else if n == 12
-            txt := "⑫"
-        else if n == 13
-            txt := "⑬"
-        else if n == 14
-            txt := "⑭"
-        else if n == 15
-            txt := "⑮"
-        else if n == 16
-            txt := "⑯"
-        else if n == 17
-            txt := "⑰"
-        else if n == 18
-            txt := "⑱"
-        else if n == 19
-            txt := "⑲"
-        else if n == 20
-            txt := "⑳"
-    else if style != "Plain"
-        txt := prefix + txt
-    txt
 
 // ------------------------------------------------------------ TD Price Flip --
 ready    = bar_index >= 5
@@ -246,25 +183,13 @@ var float tdstRes   = na
 var float tdstSup   = na
 var bool  tdstResOn = false
 var bool  tdstSupOn = false
-var line  tdstResLn = na
-var line  tdstSupLn = na
 
 if buySetupDone
     tdstRes   := hh9
     tdstResOn := true
-    if showTDST
-        tdstResLn := line.new(bar_index - 8, tdstRes, bar_index, tdstRes, color = bearCol, style = tdstStyle, width = tdstWidth)
-
 if sellSetupDone
     tdstSup   := ll9
     tdstSupOn := true
-    if showTDST
-        tdstSupLn := line.new(bar_index - 8, tdstSup, bar_index, tdstSup, color = bullCol, style = tdstStyle, width = tdstWidth)
-
-if tdstResOn and not na(tdstResLn)
-    line.set_x2(tdstResLn, bar_index)
-if tdstSupOn and not na(tdstSupLn)
-    line.set_x2(tdstSupLn, bar_index)
 
 resBreak = tdstResOn and close > tdstRes
 supBreak = tdstSupOn and close < tdstSup
@@ -273,6 +198,10 @@ if resBreak
     tdstResOn := false
 if supBreak
     tdstSupOn := false
+
+// Plots stay locked to the candles when you scroll or zoom.
+plot(showTDST and tdstResOn ? tdstRes : na, "TDST resistance", color = bearCol, style = plot.style_linebr, linewidth = tdstWidth)
+plot(showTDST and tdstSupOn ? tdstSup : na, "TDST support", color = bullCol, style = plot.style_linebr, linewidth = tdstWidth)
 
 // ------------------------------------------------------------- TD Countdown --
 var int   buyCD    = 0
@@ -470,18 +399,9 @@ if not na(shortStop) and pos != -1 and close < shortStop
     posStop   := shortStop
     posTarget := na(tdstSup) or tdstSup >= close ? na : tdstSup
 
-var line stopLn = na
-var line tgtLn  = na
-
-if showTrades and showStopTgt and (goLong or goShort)
-    stopLn := line.new(bar_index, posStop, bar_index + 1, posStop, color = color.new(color.red, 20), style = line.style_dotted)
-    tgtLn  := na(posTarget) ? na : line.new(bar_index, posTarget, bar_index + 1, posTarget, color = color.new(color.green, 20), style = line.style_dotted)
-
-if showStopTgt and pos != 0
-    if not na(stopLn)
-        line.set_x2(stopLn, bar_index)
-    if not na(tgtLn)
-        line.set_x2(tgtLn, bar_index)
+// Stop / target as plots so they travel with the chart.
+plot(showStopTgt and pos != 0 ? posStop : na, "Trade stop", color = color.new(color.red, 20), style = plot.style_linebr)
+plot(showStopTgt and pos != 0 ? posTarget : na, "Trade target", color = color.new(color.green, 20), style = plot.style_linebr)
 
 if showTrades and goLong
     label.new(bar_index, entryBuyY, "BUY " + str.tostring(posEntry, format.mintick), style = label.style_label_up, color = bullCol, textcolor = color.white, size = size.small)
@@ -492,34 +412,66 @@ plotshape((showTrades and exitStop) ? posStop : na, "Stopped out", shape.xcross,
 plotshape((showTrades and exitTgt) ? posTarget : na, "Target reached", shape.square, location.absolute, color.new(color.green, 20), size = size.tiny)
 
 // ------------------------------------------------------------------ plotting --
-if eShowSetup and buySetup >= eMinSetup
-    label.new(bar_index, setupBuyY, f_count(buySetup, eSetupStyle, "S"), style = label.style_none, textcolor = buySetupDone ? bullCol : color.new(bullCol, 30), size = size.tiny)
+// Counts use plotchar/plotshape (series plots) so they stay on the candles.
+bs = eShowSetup and buySetup >= eMinSetup
+ss = eShowSetup and sellSetup >= eMinSetup
+bc = eShowCD and buyCDPrint >= eMinCD and not buyCD13
+sc = eShowCD and sellCDPrint >= eMinCD and not sellCD13
 
-if eShowSetup and sellSetup >= eMinSetup
-    label.new(bar_index, setupSellY, f_count(sellSetup, eSetupStyle, "S"), style = label.style_none, textcolor = sellSetupDone ? bearCol : color.new(bearCol, 30), size = size.tiny)
+plotchar(bs and buySetup == 1, "Buy S1", "1", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(bs and buySetup == 2, "Buy S2", "2", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(bs and buySetup == 3, "Buy S3", "3", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(bs and buySetup == 4, "Buy S4", "4", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(bs and buySetup == 5, "Buy S5", "5", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(bs and buySetup == 6, "Buy S6", "6", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(bs and buySetup == 7, "Buy S7", "7", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(bs and buySetup == 8, "Buy S8", "8", location.belowbar, color.new(bullCol, 35), size = size.tiny)
+plotchar(bs and buySetup == 9, "Buy S9", "9", location.belowbar, bullCol, size = size.small)
 
-// 13 itself is drawn by the plotshape below, so it is skipped here.
-if eShowCD and buyCDPrint >= eMinCD and not buyCD13
-    label.new(bar_index, cdBuyY, f_count(buyCDPrint, eCdStyle, "C"), style = label.style_none, textcolor = color.new(cdBullCol, classicMode ? 0 : 20), size = size.tiny)
+plotchar(ss and sellSetup == 1, "Sell S1", "1", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(ss and sellSetup == 2, "Sell S2", "2", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(ss and sellSetup == 3, "Sell S3", "3", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(ss and sellSetup == 4, "Sell S4", "4", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(ss and sellSetup == 5, "Sell S5", "5", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(ss and sellSetup == 6, "Sell S6", "6", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(ss and sellSetup == 7, "Sell S7", "7", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(ss and sellSetup == 8, "Sell S8", "8", location.abovebar, color.new(bearCol, 35), size = size.tiny)
+plotchar(ss and sellSetup == 9, "Sell S9", "9", location.abovebar, bearCol, size = size.small)
 
-if eShowCD and sellCDPrint >= eMinCD and not sellCD13
-    label.new(bar_index, cdSellY, f_count(sellCDPrint, eCdStyle, "C"), style = label.style_none, textcolor = color.new(cdBearCol, classicMode ? 0 : 20), size = size.tiny)
+plotchar(bc and buyCDPrint == 1,  "Buy C1",  "1", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 2,  "Buy C2",  "2", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 3,  "Buy C3",  "3", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 4,  "Buy C4",  "4", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 5,  "Buy C5",  "5", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 6,  "Buy C6",  "6", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 7,  "Buy C7",  "7", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 8,  "Buy C8",  "8", location.belowbar, cdBullCol, size = size.tiny)
+plotchar(bc and buyCDPrint == 9,  "Buy C9",  "9", location.belowbar, cdBullCol, size = size.tiny)
+plotshape(bc and buyCDPrint == 10, "Buy C10", shape.circle, location.belowbar, color.new(cdBullCol, 100), text = "10", textcolor = cdBullCol, size = size.tiny)
+plotshape(bc and buyCDPrint == 11, "Buy C11", shape.circle, location.belowbar, color.new(cdBullCol, 100), text = "11", textcolor = cdBullCol, size = size.tiny)
+plotshape(bc and buyCDPrint == 12, "Buy C12", shape.circle, location.belowbar, color.new(cdBullCol, 100), text = "12", textcolor = cdBullCol, size = size.tiny)
+plotchar(eShowCD and buyCDDefer, "Buy C+", "+", location.belowbar, cdBullCol, size = size.tiny)
 
-deferTxt = eCdStyle == "Plain" ? "+" : "C+"
-if eShowCD and buyCDDefer
-    label.new(bar_index, cdBuyY, deferTxt, style = label.style_none, textcolor = color.new(cdBullCol, classicMode ? 0 : 20), size = size.tiny)
-
-if eShowCD and sellCDDefer
-    label.new(bar_index, cdSellY, deferTxt, style = label.style_none, textcolor = color.new(cdBearCol, classicMode ? 0 : 20), size = size.tiny)
+plotchar(sc and sellCDPrint == 1,  "Sell C1",  "1", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 2,  "Sell C2",  "2", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 3,  "Sell C3",  "3", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 4,  "Sell C4",  "4", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 5,  "Sell C5",  "5", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 6,  "Sell C6",  "6", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 7,  "Sell C7",  "7", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 8,  "Sell C8",  "8", location.abovebar, cdBearCol, size = size.tiny)
+plotchar(sc and sellCDPrint == 9,  "Sell C9",  "9", location.abovebar, cdBearCol, size = size.tiny)
+plotshape(sc and sellCDPrint == 10, "Sell C10", shape.circle, location.abovebar, color.new(cdBearCol, 100), text = "10", textcolor = cdBearCol, size = size.tiny)
+plotshape(sc and sellCDPrint == 11, "Sell C11", shape.circle, location.abovebar, color.new(cdBearCol, 100), text = "11", textcolor = cdBearCol, size = size.tiny)
+plotshape(sc and sellCDPrint == 12, "Sell C12", shape.circle, location.abovebar, color.new(cdBearCol, 100), text = "12", textcolor = cdBearCol, size = size.tiny)
+plotchar(eShowCD and sellCDDefer, "Sell C+", "+", location.abovebar, cdBearCol, size = size.tiny)
 
 plotshape(buySetupDone, "Buy setup 9", shape.triangleup, location.belowbar, bullCol, size = size.tiny)
 plotshape(sellSetupDone, "Sell setup 9", shape.triangledown, location.abovebar, bearCol, size = size.tiny)
 plotshape(showPerf and buyPerfected, "Buy setup perfected", shape.diamond, location.belowbar, bullCol, size = size.tiny)
 plotshape(showPerf and sellPerfected, "Sell setup perfected", shape.diamond, location.abovebar, bearCol, size = size.tiny)
-if buyCD13
-    label.new(bar_index, cdBuyY, classicMode ? "13" : "CD13", style = label.style_label_up, color = bullCol, textcolor = color.white, size = size.tiny)
-if sellCD13
-    label.new(bar_index, cdSellY, classicMode ? "13" : "CD13", style = label.style_label_down, color = bearCol, textcolor = color.white, size = size.tiny)
+plotshape(buyCD13, "Buy countdown 13", shape.labelup, location.belowbar, bullCol, text = "13", textcolor = color.white, size = size.tiny)
+plotshape(sellCD13, "Sell countdown 13", shape.labeldown, location.abovebar, bearCol, text = "13", textcolor = color.white, size = size.tiny)
 
 // ------------------------------------------------------------------- alerts --
 alertcondition(buySetupDone, "TD buy setup 9", "TD buy setup completed on {{ticker}} {{interval}}")

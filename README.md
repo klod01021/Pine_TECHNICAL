@@ -13,6 +13,11 @@ Start with `demark_sequential_classic.pine` if you want the usual DeMark chart
 with the least clutter. Use `demark_9_13.pine` when you need Combo, risk levels
 or buy/sell markers.
 
+Counts and TDST are drawn with TradingView **series plots** (`plot` /
+`plotchar` / `plotshape`), so the numbers and lines stay locked to the candles
+when you scroll, zoom, or when new bars form. Older label/line drawing hit
+object limits and could look frozen on the chart.
+
 ## About the licensed DeMARK indicators
 
 The official **DeMARK Indicators** are a commercial, closed-source product from
@@ -81,9 +86,11 @@ Bar 13 must also satisfy the qualifier: its low must be at or below the close of
 countdown bar 8. A bar that counts but fails the qualifier prints `+` and the
 countdown waits for a bar that satisfies both.
 
-**Combo** is the stricter sibling and starts counting from bar 1 of the setup,
-which is why counts appear retroactively on the nine setup bars the moment the
-9 completes. Every buy count must satisfy all of:
+**Combo** is the stricter sibling and starts counting from bar 1 of the setup.
+The seed still advances the countdown from those nine bars when the setup
+completes, but the numbers themselves are only plotted on bars where a new
+count prints (series plots cannot rewrite past bars). Every buy count must
+satisfy all of:
 
 1. `close <= low[2]`
 2. `low < low[1]`
@@ -208,21 +215,18 @@ so a second signal in the same direction is ignored rather than added to.
 | Entries | Custom: filter setup 9 entries, TDST proximity (ATR) | on, 1.0 |
 | Entries | Custom: minimum reward to risk | 1.5 |
 | Entries | Draw stop and target, show trade panel | on, on |
-| TDST | Show levels, line style, width | on, dashed, 1 |
-| Appearance | Setup and countdown count style | Prefixed S, Prefixed C |
+| TDST | Show levels, line width | on, 1 |
 | Appearance | Buy and sell colours, countdown count colours | teal, red |
-| Appearance | Setup / countdown / entry row offsets (ATR) | 0.4 / 1.2 / 2.1 |
-
-### Chart legend
+| Appearance | Entry label row offset (ATR) | 1.6 |
 
 ### Chart legend
 
 The default is **Classic** display mode - the usual DeMark Sequential look:
 
 - Plain digits `1`…`9` for the setup, close to the bars
-- Plain digits `1`…`13` for the countdown, one row further out (lighter green/red)
+- Plain digits `1`…`13` for the countdown (lighter green/red)
 - Buy counts below the bars in green, sell counts above in red
-- Dashed TDST lines
+- TDST support / resistance lines that move with the chart
 - A small `13` tag when countdown completes, `+` when bar 13 is deferred, `R` on a recycle
 - No BUY/SELL labels, risk zones or trade panel unless you turn them on
 
@@ -234,7 +238,7 @@ The default is **Classic** display mode - the usual DeMark Sequential look:
 | Tiny triangle / bright `9` | Setup completed |
 | Diamond | Setup perfected |
 | `13` tag | Countdown finished |
-| Dashed line | TDST support or resistance |
+| Horizontal TDST line | TDST support or resistance |
 
 Other display modes if you want them later: Full (S/C prefixes and extras), Simple (late counts only), Signals only (markers/entries, no numbers). When entries are turned on you also get:
 
