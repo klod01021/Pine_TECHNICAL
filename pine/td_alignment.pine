@@ -1,0 +1,21 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// TD Alignment Oscillator — Tom DeMark
+//@version=6
+indicator("TD Alignment", shorttitle="TD Align", overlay=false)
+
+fast = input.int(5, "Fast SMA", minval=1)
+slow = input.int(13, "Slow SMA", minval=1)
+signalLen = input.int(8, "Signal EMA", minval=1)
+
+fastMa = ta.sma(close, fast)
+slowMa = ta.sma(close, slow)
+
+spread = slowMa == 0.0 ? 0.0 : 100.0 * (fastMa - slowMa) / slowMa
+sig = ta.ema(spread, signalLen)
+
+plot(spread, "Alignment", color=color.new(color.blue, 0), linewidth=2)
+plot(sig, "Signal", color=color.new(color.orange, 0))
+hline(0, "Zero", color=color.new(color.gray, 60))
+
+plotshape(ta.crossover(spread, sig), "Bullish Align", style=shape.triangleup, location=location.bottom, color=color.green, size=size.tiny)
+plotshape(ta.crossunder(spread, sig), "Bearish Align", style=shape.triangledown, location=location.top, color=color.red, size=size.tiny)

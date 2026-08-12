@@ -1,0 +1,366 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// DeMark Levels & Trend Suite — TDST, TD Lines, TD Moving Averages,
+// TD Range Projection, TD Retracements and the DeMark Trendline on one chart.
+// Each tool can be toggled independently.
+//@version=6
+// Note: no `timeframe` argument. Scripts that create drawings or alerts cannot
+// declare one (Pine error CE10080), and `timeframe=""` is the default anyway.
+indicator("DeMark Levels & Trend Suite", shorttitle="DeM Levels", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ---------------------------------------------------------------------------
+// Inputs
+//
+// Defaults are deliberately conservative: only TDST, TD Lines and the moving
+// averages are on, because switching everything on at once buries the candles.
+// Turn the rest on one at a time.
+// ---------------------------------------------------------------------------
+projectBars = input.int(20, "Project lines forward (bars)", minval=0, maxval=200, group="Display")
+maxDeviationPct = input.float(15.0, "Stop projecting past this % from price", minval=1.0, maxval=100.0, group="Display")
+
+showTdst = input.bool(true, "TDST levels", group="TDST")
+setupLen = input.int(9, "Setup length", minval=1, group="TDST")
+cmp = input.int(4, "Comparison bars", minval=1, group="TDST")
+
+showPoints = input.bool(false, "TD Point markers", group="TD Points")
+leftBars = input.int(3, "TD Point left bars", minval=1, group="TD Points")
+rightBars = input.int(3, "TD Point right bars", minval=1, group="TD Points")
+
+showTdLines = input.bool(true, "TD Supply/Demand lines", group="TD Lines")
+lineLevels = input.int(1, "Line levels to draw (1-3)", minval=1, maxval=3, group="TD Lines")
+showProjection = input.bool(false, "One-bar-ahead projections", group="TD Lines")
+
+showMa = input.bool(true, "TD MA I/II", group="TD Moving Average")
+fastLen = input.int(5, "TD MA I length", minval=1, group="TD Moving Average")
+slowLen = input.int(13, "TD MA II length", minval=1, group="TD Moving Average")
+maConfirmBars = input.int(1, "Confirmation bars", minval=1, group="TD Moving Average")
+showMaSignals = input.bool(false, "Confirmation bar colouring and crosses", group="TD Moving Average")
+
+showRangeProj = input.bool(false, "Projected high/low", group="TD Range Projection")
+
+showRetr = input.bool(false, "Retracement magnets", group="TD Retracements")
+lookback = input.int(100, "Swing lookback", minval=2, group="TD Retracements")
+showRetrQualifier = input.bool(false, "Qualifier shading", group="TD Retracements")
+
+showWave = input.bool(false, "TD D-Wave count", group="TD D-Wave")
+waveLeft = input.int(5, "Wave pivot left bars", minval=1, group="TD D-Wave")
+waveRight = input.int(5, "Wave pivot right bars", minval=1, group="TD D-Wave")
+
+// ---------------------------------------------------------------------------
+// How far a trendline may be projected.
+//
+// A line drawn through two pivots and extended with `extend.right` runs to
+// infinity. When the slope is steep that forces the chart's auto-scale to
+// include enormous prices and squashes the candles into a thin band. Instead
+// the extension is capped at `projectBars` and stops early if the line would
+// travel further than `maxDeviationPct` away from the current price.
+// ---------------------------------------------------------------------------
+f_extendBars(x1, y1, x2, y2, maxBars, limitUp, limitDn) =>
+    float slope = (x2 - x1) == 0 ? 0.0 : (y2 - y1) / (x2 - x1)
+    float allowed = maxBars
+    if slope > 0.0
+        allowed := math.min(allowed, (limitUp - y2) / slope)
+    else if slope < 0.0
+        allowed := math.min(allowed, (limitDn - y2) / slope)
+    int(math.max(0.0, math.floor(allowed)))
+
+// ---------------------------------------------------------------------------
+// TD Setup (feeds TDST) — resets on a failed or equal comparison
+// ---------------------------------------------------------------------------
+var int buySetup = 0
+var int sellSetup = 0
+
+if close < close[cmp]
+    buySetup := buySetup + 1
+    sellSetup := 0
+else if close > close[cmp]
+    sellSetup := sellSetup + 1
+    buySetup := 0
+else
+    buySetup := 0
+    sellSetup := 0
+
+if buySetup > setupLen
+    buySetup := 1
+if sellSetup > setupLen
+    sellSetup := 1
+
+buyComplete = buySetup == setupLen
+sellComplete = sellSetup == setupLen
+
+// ---------------------------------------------------------------------------
+// TDST — a completed BUY setup defines RESISTANCE at the highest high of its
+// nine bars; a completed SELL setup defines SUPPORT at the lowest low.
+// ---------------------------------------------------------------------------
+// Stateful ta.* functions must be evaluated on every bar, so the rolling
+// extremes are computed here and only read inside the branches.
+setupHighest = ta.highest(high, setupLen)
+setupLowest = ta.lowest(low, setupLen)
+
+var float tdstResistance = na
+var float tdstSupport = na
+
+if buyComplete
+    tdstResistance := setupHighest
+if sellComplete
+    tdstSupport := setupLowest
+
+resistanceBroken = not na(tdstResistance) and close > tdstResistance
+supportBroken = not na(tdstSupport) and close < tdstSupport
+
+plot(showTdst ? tdstResistance : na, "TDST Resistance", color=color.new(color.red, 0), style=plot.style_linebr, linewidth=2)
+plot(showTdst ? tdstSupport : na, "TDST Support", color=color.new(color.green, 0), style=plot.style_linebr, linewidth=2)
+plotshape(showTdst and resistanceBroken and not resistanceBroken[1], "TDST Resistance broken", style=shape.xcross, location=location.abovebar, color=color.new(color.green, 0), size=size.tiny)
+plotshape(showTdst and supportBroken and not supportBroken[1], "TDST Support broken", style=shape.xcross, location=location.belowbar, color=color.new(color.red, 0), size=size.tiny)
+
+// ---------------------------------------------------------------------------
+// TD Points -> TD Lines / DeMark Trendline (shared pivot stack)
+// ---------------------------------------------------------------------------
+ph = ta.pivothigh(high, leftBars, rightBars)
+pl = ta.pivotlow(low, leftBars, rightBars)
+
+var array<float> hiPrice = array.new<float>()
+var array<int> hiBar = array.new<int>()
+var array<float> loPrice = array.new<float>()
+var array<int> loBar = array.new<int>()
+
+if not na(ph)
+    hiPrice.push(ph)
+    hiBar.push(bar_index - rightBars)
+    if hiPrice.size() > 4
+        hiPrice.shift()
+        hiBar.shift()
+if not na(pl)
+    loPrice.push(pl)
+    loBar.push(bar_index - rightBars)
+    if loPrice.size() > 4
+        loPrice.shift()
+        loBar.shift()
+
+// TD Point markers (the pivots the lines are built from).
+plotshape(showPoints and not na(ph), "TD Point high", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 20), offset=-rightBars, size=size.tiny)
+plotshape(showPoints and not na(pl), "TD Point low", style=shape.triangleup, location=location.belowbar, color=color.new(color.green, 20), offset=-rightBars, size=size.tiny)
+
+// Level 1 uses the two most recent points; level 2 the pair before that, and
+// so on, which is how a broken TD Line hands off to the next one.
+var line demandLine = na
+var line supplyLine = na
+var line demandLine2 = na
+var line supplyLine2 = na
+var line demandLine3 = na
+var line supplyLine3 = na
+
+limitUp = close * (1.0 + maxDeviationPct / 100.0)
+limitDn = close * (1.0 - maxDeviationPct / 100.0)
+
+if showTdLines and loPrice.size() >= 2
+    line.delete(demandLine)
+    int nLo = loPrice.size()
+    int x1 = loBar.get(nLo - 2)
+    float y1 = loPrice.get(nLo - 2)
+    int x2 = loBar.get(nLo - 1)
+    float y2 = loPrice.get(nLo - 1)
+    int endX = math.max(bar_index, x2) + f_extendBars(x1, y1, x2, y2, projectBars, limitUp, limitDn)
+    float endY = (x2 - x1) == 0 ? y2 : y2 + (y2 - y1) / (x2 - x1) * (endX - x2)
+    demandLine := line.new(x1, y1, endX, endY, xloc=xloc.bar_index, color=color.new(color.green, 0), width=2)
+if showTdLines and lineLevels >= 2 and loPrice.size() >= 3
+    line.delete(demandLine2)
+    int nLo2 = loPrice.size()
+    int a1 = loBar.get(nLo2 - 3)
+    float b1 = loPrice.get(nLo2 - 3)
+    int a2 = loBar.get(nLo2 - 2)
+    float b2 = loPrice.get(nLo2 - 2)
+    int endX2 = math.max(bar_index, a2) + f_extendBars(a1, b1, a2, b2, projectBars, limitUp, limitDn)
+    float endY2 = (a2 - a1) == 0 ? b2 : b2 + (b2 - b1) / (a2 - a1) * (endX2 - a2)
+    demandLine2 := line.new(a1, b1, endX2, endY2, xloc=xloc.bar_index, color=color.new(color.green, 45), width=1)
+if showTdLines and lineLevels >= 3 and loPrice.size() >= 4
+    line.delete(demandLine3)
+    int nLo3 = loPrice.size()
+    int c1 = loBar.get(nLo3 - 4)
+    float d1 = loPrice.get(nLo3 - 4)
+    int c2 = loBar.get(nLo3 - 3)
+    float d2 = loPrice.get(nLo3 - 3)
+    int endX3 = math.max(bar_index, c2) + f_extendBars(c1, d1, c2, d2, projectBars, limitUp, limitDn)
+    float endY3 = (c2 - c1) == 0 ? d2 : d2 + (d2 - d1) / (c2 - c1) * (endX3 - c2)
+    demandLine3 := line.new(c1, d1, endX3, endY3, xloc=xloc.bar_index, color=color.new(color.green, 70), width=1)
+
+if showTdLines and hiPrice.size() >= 2
+    line.delete(supplyLine)
+    int nHi = hiPrice.size()
+    int p1 = hiBar.get(nHi - 2)
+    float q1 = hiPrice.get(nHi - 2)
+    int p2 = hiBar.get(nHi - 1)
+    float q2 = hiPrice.get(nHi - 1)
+    int endXh = math.max(bar_index, p2) + f_extendBars(p1, q1, p2, q2, projectBars, limitUp, limitDn)
+    float endYh = (p2 - p1) == 0 ? q2 : q2 + (q2 - q1) / (p2 - p1) * (endXh - p2)
+    supplyLine := line.new(p1, q1, endXh, endYh, xloc=xloc.bar_index, color=color.new(color.red, 0), width=2)
+if showTdLines and lineLevels >= 2 and hiPrice.size() >= 3
+    line.delete(supplyLine2)
+    int nHi2 = hiPrice.size()
+    int r1 = hiBar.get(nHi2 - 3)
+    float s1 = hiPrice.get(nHi2 - 3)
+    int r2 = hiBar.get(nHi2 - 2)
+    float s2 = hiPrice.get(nHi2 - 2)
+    int endXh2 = math.max(bar_index, r2) + f_extendBars(r1, s1, r2, s2, projectBars, limitUp, limitDn)
+    float endYh2 = (r2 - r1) == 0 ? s2 : s2 + (s2 - s1) / (r2 - r1) * (endXh2 - r2)
+    supplyLine2 := line.new(r1, s1, endXh2, endYh2, xloc=xloc.bar_index, color=color.new(color.red, 45), width=1)
+if showTdLines and lineLevels >= 3 and hiPrice.size() >= 4
+    line.delete(supplyLine3)
+    int nHi3 = hiPrice.size()
+    int t1 = hiBar.get(nHi3 - 4)
+    float u1 = hiPrice.get(nHi3 - 4)
+    int t2 = hiBar.get(nHi3 - 3)
+    float u2 = hiPrice.get(nHi3 - 3)
+    int endXh3 = math.max(bar_index, t2) + f_extendBars(t1, u1, t2, u2, projectBars, limitUp, limitDn)
+    float endYh3 = (t2 - t1) == 0 ? u2 : u2 + (u2 - u1) / (t2 - t1) * (endXh3 - t2)
+    supplyLine3 := line.new(t1, u1, endXh3, endYh3, xloc=xloc.bar_index, color=color.new(color.red, 70), width=1)
+
+// Read the line values through explicit guards; line.get_price on an
+// undefined line id is a runtime error.
+float demandNow = na
+float demandPrev = na
+float supplyNow = na
+float supplyPrev = na
+
+if showTdLines and not na(demandLine)
+    demandNow := line.get_price(demandLine, bar_index)
+    demandPrev := line.get_price(demandLine, bar_index - 1)
+if showTdLines and not na(supplyLine)
+    supplyNow := line.get_price(supplyLine, bar_index)
+    supplyPrev := line.get_price(supplyLine, bar_index - 1)
+
+plot(showProjection and not na(demandNow) ? demandNow + (demandNow - demandPrev) : na, "Demand projection", color=color.new(color.green, 50), style=plot.style_circles, offset=1)
+plot(showProjection and not na(supplyNow) ? supplyNow + (supplyNow - supplyPrev) : na, "Supply projection", color=color.new(color.red, 50), style=plot.style_circles, offset=1)
+
+demandBreak = not na(demandNow) and close < demandNow
+supplyBreak = not na(supplyNow) and close > supplyNow
+plotshape(demandBreak and not demandBreak[1], "Demand line broken", style=shape.triangledown, location=location.belowbar, color=color.new(color.red, 0), size=size.tiny)
+plotshape(supplyBreak and not supplyBreak[1], "Supply line broken", style=shape.triangleup, location=location.abovebar, color=color.new(color.green, 0), size=size.tiny)
+
+// ---------------------------------------------------------------------------
+// TD Moving Average I / II
+// ---------------------------------------------------------------------------
+ma1 = ta.sma(close, fastLen)
+ma2 = ta.sma(close, slowLen)
+plot(showMa ? ma1 : na, "TD MA I", color=color.new(color.blue, 0), linewidth=2)
+plot(showMa ? ma2 : na, "TD MA II", color=color.new(color.orange, 0), linewidth=2)
+
+// Confirmation rule: `maConfirmBars` consecutive closes on one side of TD MA I,
+// read against the TD MA I/II trend regime.
+maBullish = math.sum(close > ma1 ? 1 : 0, maConfirmBars) >= maConfirmBars
+maBearish = math.sum(close < ma1 ? 1 : 0, maConfirmBars) >= maConfirmBars
+maTrendUp = ma1 > ma2
+
+barcolor(showMa and showMaSignals and not maTrendUp and maBullish ? color.new(color.lime, 40) : showMa and showMaSignals and maTrendUp and maBearish ? color.new(color.red, 40) : na)
+plotshape(showMa and showMaSignals and ta.crossover(ma1, ma2), "TD MA bullish cross", style=shape.triangleup, location=location.belowbar, color=color.new(color.green, 0), size=size.tiny)
+plotshape(showMa and showMaSignals and ta.crossunder(ma1, ma2), "TD MA bearish cross", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.tiny)
+
+// ---------------------------------------------------------------------------
+// TD Range Projection
+// ---------------------------------------------------------------------------
+upBar = close >= open
+projHigh = upBar ? 2.0 * high - low : 2.0 * high - close
+projLow = upBar ? 2.0 * low - high : 2.0 * low - close
+plot(showRangeProj ? projHigh : na, "Projected high", color=color.new(color.red, 40), style=plot.style_linebr, offset=1)
+plot(showRangeProj ? projLow : na, "Projected low", color=color.new(color.green, 40), style=plot.style_linebr, offset=1)
+
+// ---------------------------------------------------------------------------
+// TD Retracements
+// ---------------------------------------------------------------------------
+swingHigh = ta.highest(high, lookback)
+swingLow = ta.lowest(low, lookback)
+swingRange = swingHigh - swingLow
+plot(showRetr ? swingHigh : na, "Swing high", color=color.new(color.red, 30), style=plot.style_linebr)
+plot(showRetr ? swingLow : na, "Swing low", color=color.new(color.green, 30), style=plot.style_linebr)
+plot(showRetr ? swingLow + swingRange * 0.382 : na, "Up 38.2%", color=color.new(color.teal, 40), style=plot.style_linebr)
+plot(showRetr ? swingLow + swingRange * 0.618 : na, "Up 61.8%", color=color.new(color.teal, 0), style=plot.style_linebr)
+plot(showRetr ? swingHigh - swingRange * 0.382 : na, "Down 38.2%", color=color.new(color.orange, 40), style=plot.style_linebr)
+plot(showRetr ? swingHigh - swingRange * 0.618 : na, "Down 61.8%", color=color.new(color.orange, 0), style=plot.style_linebr)
+
+// Qualifier: the close sits in the extreme third of the bar's range, which is
+// DeMark's momentum condition for a retracement level to hold.
+barRange = high - low
+retrQualifiedUp = barRange > 0 and close >= low + barRange * (2.0 / 3.0)
+retrQualifiedDown = barRange > 0 and close <= low + barRange * (1.0 / 3.0)
+bgcolor(showRetr and showRetrQualifier and retrQualifiedUp ? color.new(color.green, 92) : showRetr and showRetrQualifier and retrQualifiedDown ? color.new(color.red, 92) : na)
+
+// ---------------------------------------------------------------------------
+// TD D-Wave — DeMark's mechanical Elliott-style count over its own pivot set,
+// kept separate from the TD Line pivots because it uses a wider swing filter.
+// ---------------------------------------------------------------------------
+wph = ta.pivothigh(high, waveLeft, waveRight)
+wpl = ta.pivotlow(low, waveLeft, waveRight)
+
+var array<int> wBar = array.new<int>()
+var array<float> wPrice = array.new<float>()
+var array<bool> wIsHigh = array.new<bool>()
+
+addWavePivot(price, isHigh) =>
+    int cnt = wBar.size()
+    if cnt > 0 and wIsHigh.get(cnt - 1) == isHigh
+        // Two pivots of the same kind in a row: keep the more extreme one.
+        if (isHigh and price > wPrice.get(cnt - 1)) or (not isHigh and price < wPrice.get(cnt - 1))
+            wBar.set(cnt - 1, bar_index - waveRight)
+            wPrice.set(cnt - 1, price)
+    else
+        wBar.push(bar_index - waveRight)
+        wPrice.push(price)
+        wIsHigh.push(isHigh)
+
+if showWave and not na(wph)
+    addWavePivot(wph, true)
+if showWave and not na(wpl)
+    addWavePivot(wpl, false)
+
+f_waveName(idx) =>
+    switch math.min(idx, 7)
+        0 => "1"
+        1 => "2"
+        2 => "3"
+        3 => "4"
+        4 => "5"
+        5 => "A"
+        6 => "B"
+        => "C"
+
+// Redraw the whole count on the last bar so the labels always reflect the
+// current pivot set.
+if showWave and barstate.islast and wBar.size() >= 2
+    bool upCount = wIsHigh.get(1)
+    int wIdx = 0
+    float waveOrigin = wPrice.get(0)
+    float w1Extreme = na
+    float w3Extreme = na
+
+    for p = 1 to wBar.size() - 1
+        float price = wPrice.get(p)
+        bool valid = true
+        if wIdx == 1          // Wave 2 may not exceed wave 1's origin
+            valid := upCount ? price >= waveOrigin : price <= waveOrigin
+            if valid
+                w1Extreme := wPrice.get(p - 1)
+        else if wIdx == 2     // Wave 3 must extend beyond wave 1's extreme
+            valid := na(w1Extreme) or (upCount ? price > w1Extreme : price < w1Extreme)
+            if valid
+                w3Extreme := price
+        else if wIdx == 3     // Wave 4 may not overlap wave 1
+            valid := na(w1Extreme) or (upCount ? price >= w1Extreme : price <= w1Extreme)
+        else if wIdx == 4     // Wave 5 must push beyond wave 3's extreme
+            valid := na(w3Extreme) or (upCount ? price > w3Extreme : price < w3Extreme)
+
+        line.new(wBar.get(p - 1), wPrice.get(p - 1), wBar.get(p), price, xloc=xloc.bar_index, color=color.new(color.blue, 40), width=1, style=line.style_dashed)
+
+        if valid and wIdx < 8
+            label.new(wBar.get(p), price, f_waveName(wIdx), xloc=xloc.bar_index, style=wIsHigh.get(p) ? label.style_label_down : label.style_label_up, color=color.new(color.blue, 20), textcolor=color.white, size=size.small)
+            wIdx := wIdx + 1
+        else
+            // A rule violation restarts the count from the previous pivot.
+            upCount := not wIsHigh.get(p)
+            waveOrigin := wPrice.get(p - 1)
+            wIdx := 1
+            w1Extreme := na
+            w3Extreme := na
+
+alertcondition(supportBroken and not supportBroken[1], "TDST support broken", "Price closed below TDST support")
+alertcondition(resistanceBroken and not resistanceBroken[1], "TDST resistance broken", "Price closed above TDST resistance")
+alertcondition(demandBreak and not demandBreak[1], "Demand line broken", "Price closed through the demand line")
+alertcondition(supplyBreak and not supplyBreak[1], "Supply line broken", "Price closed through the supply line")

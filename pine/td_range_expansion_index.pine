@@ -1,0 +1,49 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// TD Range Expansion Index (TD REI) — Tom DeMark
+//
+// A bar contributes (high - high[2]) + (low - low[2]) to the sum only when one
+// of two qualifying filters holds; otherwise it adds nothing to either the
+// numerator or the denominator.
+//@version=6
+indicator("TD Range Expansion Index", shorttitle="TD REI", overlay=false)
+
+length = input.int(5, "REI length", minval=1)
+overbought = input.float(45.0, "Overbought")
+oversold = input.float(-45.0, "Oversold")
+mildBars = input.int(6, "Bars beyond threshold before a reading is 'severe'", minval=1)
+
+// Filter A: today's range still overlaps the range 5-6 bars ago.
+condA = (high >= low[5] or high >= low[6]) and (low <= high[5] or low <= high[6])
+// Filter B: the range two bars ago still overlaps the closes 7-8 bars ago.
+condB = (high[2] >= close[7] or high[2] >= close[8]) and (low[2] <= close[7] or low[2] <= close[8])
+
+qualified = (condA or condB) and not na(close[8])
+
+dh = high - high[2]
+dl = low - low[2]
+
+value = qualified ? dh + dl : 0.0
+absValue = qualified ? math.abs(dh) + math.abs(dl) : 0.0
+
+num = math.sum(value, length)
+den = math.sum(absValue, length)
+
+rei = den == 0.0 ? 0.0 : 100.0 * num / den
+
+// DeMark's duration test: readings that persist beyond `mildBars` describe a
+// trending market rather than an exhausted one.
+var int barsOver = 0
+var int barsUnder = 0
+barsOver := rei > overbought ? barsOver + 1 : 0
+barsUnder := rei < oversold ? barsUnder + 1 : 0
+severe = barsOver > mildBars or barsUnder > mildBars
+
+plot(rei, "TD REI", color=color.new(color.teal, 0), linewidth=2)
+plot(overbought, "Overbought", color=color.new(color.red, 40))
+plot(oversold, "Oversold", color=color.new(color.green, 40))
+hline(0, "Zero", color=color.new(color.gray, 60))
+
+bgcolor(severe ? color.new(color.orange, 88) : rei > overbought ? color.new(color.red, 90) : rei < oversold ? color.new(color.green, 90) : na)
+
+alertcondition(ta.crossunder(rei, overbought), "TD REI leaving overbought", "TD REI dropped back below +45")
+alertcondition(ta.crossover(rei, oversold), "TD REI leaving oversold", "TD REI rose back above -45")

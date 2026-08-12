@@ -1,0 +1,17 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// TD Rate of Change — Tom DeMark
+//@version=6
+indicator("TD Rate of Change", shorttitle="TD ROC", overlay=false)
+
+length = input.int(5, "ROC Length", minval=1)
+signalLen = input.int(8, "Signal EMA", minval=1)
+
+roc = close[length] == 0.0 ? 0.0 : 100.0 * (close - close[length]) / close[length]
+sig = ta.ema(roc, signalLen)
+
+plot(roc, "TD ROC", color=color.new(color.blue, 0), linewidth=2)
+plot(sig, "Signal", color=color.new(color.orange, 0))
+hline(0, "Zero", color=color.new(color.gray, 60))
+
+plotshape(ta.crossover(roc, sig), "Bullish Cross", style=shape.triangleup, location=location.bottom, color=color.green, size=size.tiny)
+plotshape(ta.crossunder(roc, sig), "Bearish Cross", style=shape.triangledown, location=location.top, color=color.red, size=size.tiny)

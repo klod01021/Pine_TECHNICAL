@@ -1,0 +1,297 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//
+// DeMark v1 — Signals
+// ===================
+// The 9-13 process and everything needed to act on it: TD Setup, TD Countdown,
+// TD Combo, the TDST level that invalidates a count, and the TD Risk Level that
+// defines the stop. Grouped this way because you cannot trade a 13 without also
+// knowing where it is wrong.
+//
+// Pair with:  v2 for targets, v3 for momentum confirmation.
+//
+// Start with the Preset dropdown; switch to "Custom" to control each piece.
+//@version=6
+indicator("DeMark v1 — Signals", shorttitle="DeMark v1", overlay=true, max_labels_count=500)
+
+// ---------------------------------------------------------------------------
+// Preset
+// ---------------------------------------------------------------------------
+preset = input.string("Standard", "Preset", options=["Essential", "Standard", "Everything", "Custom"], group="Preset", tooltip="Essential: 9s and 13s only. Standard: adds TDST and the risk level. Everything: adds Combo, deferrals and running counts.")
+
+cShowCounts = input.bool(true, "Running setup counts", group="Custom (used when Preset = Custom)")
+cShowCdCounts = input.bool(false, "Running countdown counts", group="Custom (used when Preset = Custom)")
+cShowCombo = input.bool(true, "TD Combo", group="Custom (used when Preset = Custom)")
+cShowTdst = input.bool(true, "TDST levels", group="Custom (used when Preset = Custom)")
+cShowRisk = input.bool(true, "TD Risk Level", group="Custom (used when Preset = Custom)")
+cShowDeferred = input.bool(false, "Deferred 13 markers", group="Custom (used when Preset = Custom)")
+
+isEss = preset == "Essential"
+isStd = preset == "Standard"
+isAll = preset == "Everything"
+isCustom = preset == "Custom"
+
+showCounts = isCustom ? cShowCounts : (isStd or isAll)
+showCdCounts = isCustom ? cShowCdCounts : isAll
+showCombo = isCustom ? cShowCombo : isAll
+showTdst = isCustom ? cShowTdst : (isStd or isAll)
+showRisk = isCustom ? cShowRisk : (isStd or isAll)
+showDeferred = isCustom ? cShowDeferred : isAll
+
+// ---------------------------------------------------------------------------
+// Parameters
+// ---------------------------------------------------------------------------
+setupLen = input.int(9, "Setup length", minval=1, group="Setup")
+cmp = input.int(4, "Comparison bars", minval=1, group="Setup")
+cdLen = input.int(13, "Countdown length", minval=2, group="Countdown")
+useDeferral = input.bool(true, "Apply 13-vs-8 deferral rule", group="Countdown")
+cancelOnOpposite = input.bool(true, "Cancel on opposite setup", group="Countdown")
+cancelOnTdst = input.bool(true, "Cancel on TDST violation", group="Countdown")
+strictThrough = input.int(10, "Combo strict conditions through count", minval=1, maxval=13, group="Combo")
+
+// ---------------------------------------------------------------------------
+// TD Setup — a bar failing the strict comparison, including an equal close,
+// resets the count.
+// ---------------------------------------------------------------------------
+var int buySetup = 0
+var int sellSetup = 0
+
+if close < close[cmp]
+    buySetup := buySetup + 1
+    sellSetup := 0
+else if close > close[cmp]
+    sellSetup := sellSetup + 1
+    buySetup := 0
+else
+    buySetup := 0
+    sellSetup := 0
+
+if buySetup > setupLen
+    buySetup := 1
+if sellSetup > setupLen
+    sellSetup := 1
+
+buyComplete = buySetup == setupLen
+sellComplete = sellSetup == setupLen
+
+// Perfection: the low of bar 8 or 9 at or below the lows of bars 6 and 7.
+buyPerfected = buyComplete and math.min(low[1], low) <= math.min(low[3], low[2])
+sellPerfected = sellComplete and math.max(high[1], high) >= math.max(high[3], high[2])
+
+// ---------------------------------------------------------------------------
+// TDST — buy setup defines resistance, sell setup defines support.
+// Stateful ta.* must run every bar, so the extremes are computed here.
+// ---------------------------------------------------------------------------
+setupHighest = ta.highest(high, setupLen)
+setupLowest = ta.lowest(low, setupLen)
+
+var float tdstResistance = na
+var float tdstSupport = na
+if buyComplete
+    tdstResistance := setupHighest
+if sellComplete
+    tdstSupport := setupLowest
+
+// ---------------------------------------------------------------------------
+// TD Countdown
+// ---------------------------------------------------------------------------
+trueLow = math.min(low, close[1])
+trueHigh = math.max(high, close[1])
+
+var int buyCd = 0
+var int sellCd = 0
+var bool buyActive = false
+var bool sellActive = false
+var float buyCd8Close = na
+var float sellCd8Close = na
+// Lowest true low seen during the active buy countdown, and that bar's range,
+// which together give the risk level when the 13 prints.
+var float buyLowestTrueLow = na
+var float buyLowestRange = na
+var float sellHighestTrueHigh = na
+var float sellHighestRange = na
+
+bool buyCancelled = false
+bool sellCancelled = false
+
+if buyComplete
+    buyActive := true
+    buyCd := 0
+    buyCd8Close := na
+    buyLowestTrueLow := na
+    buyLowestRange := na
+    if cancelOnOpposite and sellActive
+        sellActive := false
+        sellCancelled := true
+if sellComplete
+    sellActive := true
+    sellCd := 0
+    sellCd8Close := na
+    sellHighestTrueHigh := na
+    sellHighestRange := na
+    if cancelOnOpposite and buyActive
+        buyActive := false
+        buyCancelled := true
+
+if cancelOnTdst and buyActive and not na(tdstResistance) and close > tdstResistance
+    buyActive := false
+    buyCancelled := true
+if cancelOnTdst and sellActive and not na(tdstSupport) and close < tdstSupport
+    sellActive := false
+    sellCancelled := true
+
+// Track the countdown extremes while a count is running.
+if buyActive and (na(buyLowestTrueLow) or trueLow < buyLowestTrueLow)
+    buyLowestTrueLow := trueLow
+    buyLowestRange := trueHigh - trueLow
+if sellActive and (na(sellHighestTrueHigh) or trueHigh > sellHighestTrueHigh)
+    sellHighestTrueHigh := trueHigh
+    sellHighestRange := trueHigh - trueLow
+
+bool buy13 = false
+bool sell13 = false
+bool buyDeferred = false
+bool sellDeferred = false
+int buyCdBar = 0
+int sellCdBar = 0
+
+if buyActive and bar_index >= 2 and close <= low[2]
+    if buyCd == cdLen - 1
+        bool qualified = not useDeferral or na(buyCd8Close) or low <= buyCd8Close
+        if qualified
+            buyCd := buyCd + 1
+            buyCdBar := buyCd
+            buy13 := true
+            buyActive := false
+        else
+            buyDeferred := true
+    else
+        buyCd := buyCd + 1
+        buyCdBar := buyCd
+        if buyCd == 8
+            buyCd8Close := close
+
+if sellActive and bar_index >= 2 and close >= high[2]
+    if sellCd == cdLen - 1
+        bool qualified2 = not useDeferral or na(sellCd8Close) or high >= sellCd8Close
+        if qualified2
+            sellCd := sellCd + 1
+            sellCdBar := sellCd
+            sell13 := true
+            sellActive := false
+        else
+            sellDeferred := true
+    else
+        sellCd := sellCd + 1
+        sellCdBar := sellCd
+        if sellCd == 8
+            sellCd8Close := close
+
+// ---------------------------------------------------------------------------
+// TD Risk Level — the stop for a completed 13.
+// ---------------------------------------------------------------------------
+var float buyRisk = na
+var float sellRisk = na
+
+if buy13 and not na(buyLowestTrueLow)
+    buyRisk := buyLowestTrueLow - buyLowestRange
+if sell13 and not na(sellHighestTrueHigh)
+    sellRisk := sellHighestTrueHigh + sellHighestRange
+
+buyRiskBroken = not na(buyRisk) and close < buyRisk
+sellRiskBroken = not na(sellRisk) and close > sellRisk
+
+// ---------------------------------------------------------------------------
+// TD Combo
+// ---------------------------------------------------------------------------
+var int buyCombo = 0
+var int sellCombo = 0
+var bool buyComboActive = false
+var bool sellComboActive = false
+var float buyComboPrev = na
+var float sellComboPrev = na
+
+if buyComplete
+    buyComboActive := true
+    buyCombo := 0
+    buyComboPrev := na
+    if cancelOnOpposite
+        sellComboActive := false
+if sellComplete
+    sellComboActive := true
+    sellCombo := 0
+    sellComboPrev := na
+    if cancelOnOpposite
+        buyComboActive := false
+
+bool buyCombo13 = false
+bool sellCombo13 = false
+
+if buyComboActive and bar_index >= 2
+    bool belowPrev = na(buyComboPrev) or close < buyComboPrev
+    bool ok = buyCombo < strictThrough ? (close <= low[2] and low <= low[1] and close < close[1] and belowPrev) : belowPrev
+    if ok
+        buyCombo := buyCombo + 1
+        buyComboPrev := close
+        if buyCombo == cdLen
+            buyCombo13 := true
+            buyComboActive := false
+
+if sellComboActive and bar_index >= 2
+    bool abovePrev = na(sellComboPrev) or close > sellComboPrev
+    bool ok2 = sellCombo < strictThrough ? (close >= high[2] and high >= high[1] and close > close[1] and abovePrev) : abovePrev
+    if ok2
+        sellCombo := sellCombo + 1
+        sellComboPrev := close
+        if sellCombo == cdLen
+            sellCombo13 := true
+            sellComboActive := false
+
+buyConfluence = buy13 and buyCombo13
+sellConfluence = sell13 and sellCombo13
+
+// ---------------------------------------------------------------------------
+// Plots
+// ---------------------------------------------------------------------------
+plotshape(buyComplete and not buyPerfected, "Buy 9", style=shape.labelup, location=location.belowbar, color=color.new(color.green, 0), text="9", textcolor=color.white, size=size.tiny)
+plotshape(buyPerfected, "Buy 9 perfected", style=shape.labelup, location=location.belowbar, color=color.new(color.lime, 0), text="9+", textcolor=color.black, size=size.tiny)
+plotshape(sellComplete and not sellPerfected, "Sell 9", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0), text="9", textcolor=color.white, size=size.tiny)
+plotshape(sellPerfected, "Sell 9 perfected", style=shape.labeldown, location=location.abovebar, color=color.new(color.maroon, 0), text="9+", textcolor=color.white, size=size.tiny)
+
+plotshape(buy13 and not buyConfluence, "Buy 13", style=shape.labelup, location=location.belowbar, color=color.new(color.lime, 0), text="13", textcolor=color.black, size=size.small)
+plotshape(sell13 and not sellConfluence, "Sell 13", style=shape.labeldown, location=location.abovebar, color=color.new(color.maroon, 0), text="13", textcolor=color.white, size=size.small)
+
+plotshape(showCombo and buyCombo13 and not buyConfluence, "Combo Buy 13", style=shape.diamond, location=location.belowbar, color=color.new(color.aqua, 0), size=size.tiny)
+plotshape(showCombo and sellCombo13 and not sellConfluence, "Combo Sell 13", style=shape.diamond, location=location.abovebar, color=color.new(color.fuchsia, 0), size=size.tiny)
+
+plotshape(buyConfluence, "Buy 13 confluence", style=shape.labelup, location=location.belowbar, color=color.new(color.blue, 0), text="13x2", textcolor=color.white, size=size.normal)
+plotshape(sellConfluence, "Sell 13 confluence", style=shape.labeldown, location=location.abovebar, color=color.new(color.orange, 0), text="13x2", textcolor=color.black, size=size.normal)
+
+plotshape(showDeferred and buyDeferred, "Buy 13 deferred", style=shape.xcross, location=location.belowbar, color=color.new(color.gray, 30), size=size.tiny)
+plotshape(showDeferred and sellDeferred, "Sell 13 deferred", style=shape.xcross, location=location.abovebar, color=color.new(color.gray, 30), size=size.tiny)
+
+plot(showTdst ? tdstResistance : na, "TDST Resistance", color=color.new(color.red, 30), style=plot.style_linebr, linewidth=2)
+plot(showTdst ? tdstSupport : na, "TDST Support", color=color.new(color.green, 30), style=plot.style_linebr, linewidth=2)
+
+plot(showRisk ? buyRisk : na, "Buy risk level", color=color.new(color.lime, 25), style=plot.style_linebr, linewidth=1)
+plot(showRisk ? sellRisk : na, "Sell risk level", color=color.new(color.maroon, 25), style=plot.style_linebr, linewidth=1)
+
+plotshape(showRisk and buyRiskBroken and not buyRiskBroken[1], "Buy risk broken", style=shape.xcross, location=location.belowbar, color=color.new(color.red, 0), size=size.tiny)
+plotshape(showRisk and sellRiskBroken and not sellRiskBroken[1], "Sell risk broken", style=shape.xcross, location=location.abovebar, color=color.new(color.green, 0), size=size.tiny)
+
+if showCounts and buySetup > 0 and buySetup < setupLen
+    label.new(bar_index, low, str.tostring(buySetup), xloc=xloc.bar_index, yloc=yloc.belowbar, style=label.style_none, textcolor=color.new(color.green, 25), size=size.tiny)
+if showCounts and sellSetup > 0 and sellSetup < setupLen
+    label.new(bar_index, high, str.tostring(sellSetup), xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_none, textcolor=color.new(color.red, 25), size=size.tiny)
+if showCdCounts and buyCdBar > 0 and not buy13
+    label.new(bar_index, low, str.tostring(buyCdBar), xloc=xloc.bar_index, yloc=yloc.belowbar, style=label.style_none, textcolor=color.new(color.teal, 15), size=size.tiny)
+if showCdCounts and sellCdBar > 0 and not sell13
+    label.new(bar_index, high, str.tostring(sellCdBar), xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_none, textcolor=color.new(color.orange, 15), size=size.tiny)
+
+alertcondition(buy13, "v1 Buy 13", "DeMark buy countdown completed")
+alertcondition(sell13, "v1 Sell 13", "DeMark sell countdown completed")
+alertcondition(buyConfluence, "v1 Buy 13 confluence", "Sequential and Combo buy 13 on the same bar")
+alertcondition(sellConfluence, "v1 Sell 13 confluence", "Sequential and Combo sell 13 on the same bar")
+alertcondition(buyComplete, "v1 Buy 9", "DeMark buy setup completed")
+alertcondition(sellComplete, "v1 Sell 9", "DeMark sell setup completed")
+alertcondition(buyRiskBroken or sellRiskBroken, "v1 Risk level broken", "Price closed through the TD risk level")
+alertcondition(buyCancelled or sellCancelled, "v1 Countdown cancelled", "An active countdown was cancelled")

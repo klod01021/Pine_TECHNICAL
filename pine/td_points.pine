@@ -1,0 +1,28 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// TD Points — qualified pivot highs/lows used to build TD Lines
+//@version=6
+indicator("TD Points", shorttitle="TD Points", overlay=true)
+
+// DeMark's strict TD Point is 1 bar either side, but on an intraday chart that
+// marks almost every bar. 3 is a readable default; set both to 1 for the
+// textbook definition.
+left = input.int(3, "Left Bars", minval=1)
+right = input.int(3, "Right Bars", minval=1)
+
+ph = ta.pivothigh(high, left, right)
+pl = ta.pivotlow(low, left, right)
+
+// Mark the pivot bar itself (offset back by `right` since confirmation is delayed).
+plotshape(not na(ph), "TD Point High", style=shape.triangledown, location=location.abovebar, color=color.red, offset=-right, size=size.tiny)
+plotshape(not na(pl), "TD Point Low", style=shape.triangleup, location=location.belowbar, color=color.green, offset=-right, size=size.tiny)
+
+// Also expose the latest confirmed point values as series for other scripts.
+var float lastPointHigh = na
+var float lastPointLow = na
+if not na(ph)
+    lastPointHigh := ph
+if not na(pl)
+    lastPointLow := pl
+
+plot(lastPointHigh, "Last TD Point High", color=color.new(color.red, 40), style=plot.style_linebr)
+plot(lastPointLow, "Last TD Point Low", color=color.new(color.green, 40), style=plot.style_linebr)
