@@ -1,53 +1,53 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// DeMark Oscillator Suite — DeMarker, DeMarker II, TD Pressure Ratio, TDREI,
+// DeMark Oscillator Suite — DeMarker, DeMarker II, TD Pressure Ratio, TD REI,
 // TD POQ, TD Alignment, TD ROC and TD Oscillator on one pane.
 //
-// The oscillators use different scales (0-100 vs unbounded), so each one can
-// be toggled on/off and is normalized to a common 0-100 band for display.
-// The raw value of the single "focus" oscillator is shown in the data window.
+// The oscillators use different scales, so unbounded ones are rescaled to the
+// same 0-100 band for shape comparison. The "focus" dropdown picks which one
+// drives the overbought / oversold shading.
 //@version=6
-indicator("DeMark Oscillator Suite", shorttitle="DeM Oscillators", overlay=false, timeframe="", timeframe_gaps=true, max_lines_count=500)
+indicator("DeMark Oscillator Suite", shorttitle="DeM Oscillators", overlay=false, timeframe="", timeframe_gaps=true)
 
 // ---------------------------------------------------------------------------
 // Inputs
 // ---------------------------------------------------------------------------
-focusOptions = input.string("DeMarker", "Focus oscillator (plotted at full size)", options=["DeMarker", "DeMarker II", "TD Pressure Ratio", "TDREI", "TD POQ", "TD Alignment", "TD ROC", "TD Oscillator"])
+focus = input.string("DeMarker", "Focus oscillator", options=["DeMarker", "DeMarker II", "TD Pressure Ratio", "TD REI", "TD POQ", "TD Alignment", "TD ROC", "TD Oscillator"], group="Display")
+scaleLookback = input.int(200, "Rescale lookback for unbounded oscillators", minval=10, group="Display")
+obLevel = input.float(70.0, "Overbought", group="Display")
+osLevel = input.float(30.0, "Oversold", group="Display")
 
-showDem = input.bool(true, "DeMarker", inline="osc1")
-demLen = input.int(14, "Length", minval=1, inline="osc1")
-showDem2 = input.bool(false, "DeMarker II", inline="osc2")
-dem2Len = input.int(8, "Length", minval=1, inline="osc2")
-showPr = input.bool(false, "TD Pressure Ratio", inline="osc3")
-prLen = input.int(13, "Length", minval=1, inline="osc3")
-showRei = input.bool(false, "TDREI", inline="osc4")
-reiLen = input.int(5, "Length", minval=1, inline="osc4")
-showPoq = input.bool(false, "TD POQ", inline="osc5")
-poqFast = input.int(3, "Fast", minval=1, inline="osc5")
-poqSlow = input.int(8, "Slow", minval=1, inline="osc5b")
-showAlign = input.bool(false, "TD Alignment", inline="osc6")
-alFast = input.int(5, "Fast", minval=1, inline="osc6")
-alSlow = input.int(13, "Slow", minval=1, inline="osc6b")
-showRoc = input.bool(false, "TD ROC", inline="osc7")
-rocLen = input.int(5, "Length", minval=1, inline="osc7")
-showOsc = input.bool(false, "TD Oscillator", inline="osc8")
-oscFast = input.int(3, "Fast", minval=1, inline="osc8")
-oscSlow = input.int(9, "Slow", minval=1, inline="osc8b")
-
-obLevel = input.float(70.0, "Overbought")
-osLevel = input.float(30.0, "Oversold")
+showDem = input.bool(true, "DeMarker", inline="o1", group="Oscillators")
+demLen = input.int(14, "len", minval=1, inline="o1", group="Oscillators")
+showDem2 = input.bool(false, "DeMarker II", inline="o2", group="Oscillators")
+dem2Len = input.int(8, "len", minval=1, inline="o2", group="Oscillators")
+showPr = input.bool(false, "TD Pressure Ratio", inline="o3", group="Oscillators")
+prLen = input.int(13, "len", minval=1, inline="o3", group="Oscillators")
+showRei = input.bool(false, "TD REI", inline="o4", group="Oscillators")
+reiLen = input.int(5, "len", minval=1, inline="o4", group="Oscillators")
+showPoq = input.bool(false, "TD POQ", inline="o5", group="Oscillators")
+poqFast = input.int(3, "fast", minval=1, inline="o5", group="Oscillators")
+poqSlow = input.int(8, "slow", minval=1, inline="o5", group="Oscillators")
+showAlign = input.bool(false, "TD Alignment", inline="o6", group="Oscillators")
+alFast = input.int(5, "fast", minval=1, inline="o6", group="Oscillators")
+alSlow = input.int(13, "slow", minval=1, inline="o6", group="Oscillators")
+showRoc = input.bool(false, "TD ROC", inline="o7", group="Oscillators")
+rocLen = input.int(5, "len", minval=1, inline="o7", group="Oscillators")
+showOsc = input.bool(false, "TD Oscillator", inline="o8", group="Oscillators")
+oscFast = input.int(3, "fast", minval=1, inline="o8", group="Oscillators")
+oscSlow = input.int(9, "slow", minval=1, inline="o8", group="Oscillators")
 
 // ---------------------------------------------------------------------------
-// Calculations (each matches its standalone script)
-// ---------------------------------------------------------------------------
-
 // DeMarker
+// ---------------------------------------------------------------------------
 demHigh = math.max(high - high[1], 0.0)
 demLow = math.max(low[1] - low, 0.0)
 demSumH = ta.sma(demHigh, demLen)
 demSumL = ta.sma(demLow, demLen)
 dem = (demSumH + demSumL) == 0.0 ? 0.0 : 100.0 * demSumH / (demSumH + demSumL)
 
+// ---------------------------------------------------------------------------
 // DeMarker II
+// ---------------------------------------------------------------------------
 midpoint = (high + low) / 2.0
 up2 = math.max(high - midpoint, 0.0) * (close >= midpoint ? 1.0 : 0.0)
 dn2 = math.max(midpoint - low, 0.0) * (close < midpoint ? 1.0 : 0.0)
@@ -55,7 +55,9 @@ sumUp2 = ta.sma(up2, dem2Len)
 sumDn2 = ta.sma(dn2, dem2Len)
 dem2 = (sumUp2 + sumDn2) == 0.0 ? 0.0 : 100.0 * sumUp2 / (sumUp2 + sumDn2)
 
+// ---------------------------------------------------------------------------
 // TD Pressure Ratio
+// ---------------------------------------------------------------------------
 trueRange = math.max(math.max(high - low, math.abs(high - close[1])), math.abs(low - close[1]))
 buying = math.max(close - low, 0.0) * trueRange
 selling = math.max(high - close, 0.0) * trueRange
@@ -63,58 +65,65 @@ sumBuy = ta.sma(buying, prLen)
 sumSell = ta.sma(selling, prLen)
 prRatio = (sumBuy + sumSell) == 0.0 ? 0.0 : 100.0 * sumBuy / (sumBuy + sumSell)
 
-// TD Range Expansion Index
-upCond = (high[5] >= low[6]) or (high[6] >= low[5])
-dnCond = (low[5] <= high[6]) or (low[6] <= high[5])
-upVal = (high - high[2]) + (low - low[2])
-dnVal = (high[1] - high[3]) + (low[1] - low[3])
-float expansion = 0.0
-if upCond and dnCond
-    expansion := upVal + dnVal
-else if upCond
-    expansion := upVal
-else if dnCond
-    expansion := dnVal
-reiNum = math.sum(expansion, reiLen)
-reiDen = math.sum(math.abs(expansion), reiLen)
-rei = reiDen == 0.0 ? 0.0 : 100.0 * reiNum / reiDen   // -100..+100
+// ---------------------------------------------------------------------------
+// TD Range Expansion Index (DeMark's published formula)
+// A bar contributes (high - high[2]) + (low - low[2]) only when one of two
+// filters holds; otherwise it adds nothing to numerator or denominator.
+// ---------------------------------------------------------------------------
+condA = (high >= low[5] or high >= low[6]) and (low <= high[5] or low <= high[6])
+condB = (high[2] >= close[7] or high[2] >= close[8]) and (low[2] <= close[7] or low[2] <= close[8])
+reiQualified = (condA or condB) and not na(close[8])
+dh = high - high[2]
+dl = low - low[2]
+reiValue = reiQualified ? dh + dl : 0.0
+reiAbs = reiQualified ? math.abs(dh) + math.abs(dl) : 0.0
+reiNum = math.sum(reiValue, reiLen)
+reiDen = math.sum(reiAbs, reiLen)
+rei = reiDen == 0.0 ? 0.0 : 100.0 * reiNum / reiDen
 
-// TD POQ
+// ---------------------------------------------------------------------------
+// TD POQ / Alignment / ROC / Oscillator
+// ---------------------------------------------------------------------------
 poqFastEma = ta.ema(close, poqFast)
 poqSlowEma = ta.ema(close, poqSlow)
 poq = poqSlowEma == 0.0 ? 0.0 : 100.0 * (poqFastEma - poqSlowEma) / poqSlowEma
 
-// TD Alignment
 alFastMa = ta.sma(close, alFast)
 alSlowMa = ta.sma(close, alSlow)
 alignment = alSlowMa == 0.0 ? 0.0 : 100.0 * (alFastMa - alSlowMa) / alSlowMa
 
-// TD ROC
 roc = close[rocLen] == 0.0 ? 0.0 : 100.0 * (close - close[rocLen]) / close[rocLen]
 
-// TD Oscillator
 oscFastMa = ta.sma(close, oscFast)
 oscSlowMa = ta.sma(close, oscSlow)
 tdOsc = oscSlowMa == 0.0 ? 0.0 : 100.0 * (oscFastMa - oscSlowMa) / oscSlowMa
 
 // ---------------------------------------------------------------------------
-// Normalization to a shared 0-100 band
+// Rescale unbounded oscillators onto the shared 0-100 band
 // ---------------------------------------------------------------------------
-// Bounded oscillators (0-100) pass through; unbounded ones are scaled with a
-// rolling min/max so their *shape* is comparable on one pane.
-f_scale01(series) =>
-    float lo = ta.lowest(series, 200)
-    float hi = ta.highest(series, 200)
-    (hi - lo) == 0.0 ? 50.0 : 100.0 * (series - lo) / (hi - lo)
+f_rescale(src, lookback) =>
+    float lo = ta.lowest(src, lookback)
+    float hi = ta.highest(src, lookback)
+    (hi - lo) == 0.0 ? 50.0 : 100.0 * (src - lo) / (hi - lo)
 
-reiN = (rei + 100.0) / 2.0       // TDREI is already bounded, shift -100..100 -> 0..100
-poqN = f_scale01(poq)
-alignN = f_scale01(alignment)
-rocN = f_scale01(roc)
-oscN = f_scale01(tdOsc)
+reiN = (rei + 100.0) / 2.0            // -100..100 maps directly onto 0..100
+poqN = f_rescale(poq, scaleLookback)
+alignN = f_rescale(alignment, scaleLookback)
+rocN = f_rescale(roc, scaleLookback)
+oscN = f_rescale(tdOsc, scaleLookback)
 
-// Raw focus value (full-scale line + data window).
-focusRaw = focusOptions == "DeMarker" ? dem : focusOptions == "DeMarker II" ? dem2 : focusOptions == "TD Pressure Ratio" ? prRatio : focusOptions == "TDREI" ? rei : focusOptions == "TD POQ" ? poq : focusOptions == "TD Alignment" ? alignment : focusOptions == "TD ROC" ? roc : tdOsc
+// Raw value of the focus oscillator, for the data window and shading.
+focusRaw = switch focus
+    "DeMarker" => dem
+    "DeMarker II" => dem2
+    "TD Pressure Ratio" => prRatio
+    "TD REI" => rei
+    "TD POQ" => poq
+    "TD Alignment" => alignment
+    "TD ROC" => roc
+    => tdOsc
+
+focusIsBounded = focus == "DeMarker" or focus == "DeMarker II" or focus == "TD Pressure Ratio"
 
 // ---------------------------------------------------------------------------
 // Plots
@@ -122,15 +131,24 @@ focusRaw = focusOptions == "DeMarker" ? dem : focusOptions == "DeMarker II" ? de
 plot(showDem ? dem : na, "DeMarker", color=color.new(color.blue, 0), linewidth=2)
 plot(showDem2 ? dem2 : na, "DeMarker II", color=color.new(color.navy, 0))
 plot(showPr ? prRatio : na, "TD Pressure Ratio", color=color.new(color.purple, 0))
-plot(showRei ? reiN : na, "TDREI (scaled)", color=color.new(color.teal, 0))
+plot(showRei ? reiN : na, "TD REI (0-100 scaled)", color=color.new(color.teal, 0))
 plot(showPoq ? poqN : na, "TD POQ (scaled)", color=color.new(color.orange, 0))
 plot(showAlign ? alignN : na, "TD Alignment (scaled)", color=color.new(color.fuchsia, 0))
 plot(showRoc ? rocN : na, "TD ROC (scaled)", color=color.new(color.maroon, 0))
 plot(showOsc ? oscN : na, "TD Oscillator (scaled)", color=color.new(color.gray, 0))
 
+// Raw focus value is display=none so it shows in the data window without
+// distorting the pane scale.
+plot(focusRaw, "Focus (raw value)", color=color.new(color.white, 100), display=display.data_window)
+
+hline(50, "Mid", color=color.new(color.gray, 70))
 plot(obLevel, "Overbought", color=color.new(color.red, 50))
 plot(osLevel, "Oversold", color=color.new(color.green, 50))
-hline(50, "Mid", color=color.new(color.gray, 70))
 
-// Focus background shading for bounded oscillators.
-bgcolor((focusOptions == "DeMarker" or focusOptions == "DeMarker II" or focusOptions == "TD Pressure Ratio") and focusRaw > obLevel ? color.new(color.red, 92) : (focusOptions == "DeMarker" or focusOptions == "DeMarker II" or focusOptions == "TD Pressure Ratio") and focusRaw < osLevel ? color.new(color.green, 92) : na)
+bgcolor(focusIsBounded and focusRaw > obLevel ? color.new(color.red, 92) : focusIsBounded and focusRaw < osLevel ? color.new(color.green, 92) : na)
+
+// TD REI uses its own +/-45 thresholds rather than the 70/30 band.
+reiOverbought = showRei and rei > 45.0
+reiOversold = showRei and rei < -45.0
+alertcondition(reiOverbought, "TD REI Overbought", "TD REI above +45")
+alertcondition(reiOversold, "TD REI Oversold", "TD REI below -45")

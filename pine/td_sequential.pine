@@ -1,13 +1,22 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// TD Sequential (Setup 1-9 + classic Countdown 1-13) — Tom DeMark
+// TD Sequential — Setup 1-9 plus Countdown 1-13, with DeMark's 13-vs-8
+// deferral rule and the standard countdown cancellations.
 //@version=6
 indicator("TD Sequential", shorttitle="TD Seq", overlay=true, timeframe="", timeframe_gaps=true, max_labels_count=500)
 
-setupLen = input.int(9, "Setup Length", minval=1)
-cdLen = input.int(13, "Countdown Length", minval=1)
-cmp = input.int(4, "Comparison Bars", minval=1)
+setupLen = input.int(9, "Setup length", minval=1, group="Setup")
+cmp = input.int(4, "Comparison bars", minval=1, group="Setup")
+showCounts = input.bool(true, "Show running setup counts", group="Setup")
 
-// --- TD Setup -------------------------------------------------------------
+cdLen = input.int(13, "Countdown length", minval=2, group="Countdown")
+useDeferral = input.bool(true, "Apply 13-vs-8 deferral rule", group="Countdown")
+cancelOnOpposite = input.bool(true, "Cancel on opposite setup", group="Countdown")
+cancelOnTdst = input.bool(true, "Cancel on TDST violation", group="Countdown")
+
+// ---------------------------------------------------------------------------
+// TD Setup — any bar failing the strict comparison, including an equal close,
+// resets the count.
+// ---------------------------------------------------------------------------
 var int buySetup = 0
 var int sellSetup = 0
 
@@ -18,57 +27,111 @@ else if close > close[cmp]
     sellSetup := sellSetup + 1
     buySetup := 0
 else
-    buySetup := buySetup
-    sellSetup := sellSetup
+    buySetup := 0
+    sellSetup := 0
 
-// Recycle once a setup passes 9.
 if buySetup > setupLen
     buySetup := 1
 if sellSetup > setupLen
     sellSetup := 1
 
-// --- TD Countdown ----------------------------------------------------------
+buyComplete = buySetup == setupLen
+sellComplete = sellSetup == setupLen
+
+// Perfection: low of bar 8 or 9 at or below the lows of bars 6 and 7.
+buyPerfected = buyComplete and math.min(low[1], low) <= math.min(low[3], low[2])
+sellPerfected = sellComplete and math.max(high[1], high) >= math.max(high[3], high[2])
+
+// ---------------------------------------------------------------------------
+// TD Countdown
+// ---------------------------------------------------------------------------
 var int buyCd = 0
 var int sellCd = 0
 var bool buyActive = false
 var bool sellActive = false
+var float buyCd8Close = na
+var float sellCd8Close = na
+var float buyGuard = na
+var float sellGuard = na
 
-if buySetup == setupLen
+bool buyCancelled = false
+bool sellCancelled = false
+
+if buyComplete
     buyActive := true
     buyCd := 0
-if sellSetup == setupLen
+    buyCd8Close := na
+    buyGuard := ta.highest(high, setupLen)
+    if cancelOnOpposite and sellActive
+        sellActive := false
+        sellCancelled := true
+if sellComplete
     sellActive := true
     sellCd := 0
+    sellCd8Close := na
+    sellGuard := ta.lowest(low, setupLen)
+    if cancelOnOpposite and buyActive
+        buyActive := false
+        buyCancelled := true
 
-buySig = false
-sellSig = false
+if cancelOnTdst and buyActive and not na(buyGuard) and close > buyGuard
+    buyActive := false
+    buyCancelled := true
+if cancelOnTdst and sellActive and not na(sellGuard) and close < sellGuard
+    sellActive := false
+    sellCancelled := true
+
+bool buy13 = false
+bool sell13 = false
+bool buyDeferred = false
+bool sellDeferred = false
 
 if buyActive and bar_index >= 2 and close <= low[2]
-    buyCd += 1
-    if buyCd == cdLen
-        buySig := true
-        buyActive := false
+    if buyCd == cdLen - 1
+        bool qualified = not useDeferral or na(buyCd8Close) or low <= buyCd8Close
+        if qualified
+            buyCd := buyCd + 1
+            buy13 := true
+            buyActive := false
+        else
+            buyDeferred := true
+    else
+        buyCd := buyCd + 1
+        if buyCd == 8
+            buyCd8Close := close
 
 if sellActive and bar_index >= 2 and close >= high[2]
-    sellCd += 1
-    if sellCd == cdLen
-        sellSig := true
-        sellActive := false
+    if sellCd == cdLen - 1
+        bool qualified2 = not useDeferral or na(sellCd8Close) or high >= sellCd8Close
+        if qualified2
+            sellCd := sellCd + 1
+            sell13 := true
+            sellActive := false
+        else
+            sellDeferred := true
+    else
+        sellCd := sellCd + 1
+        if sellCd == 8
+            sellCd8Close := close
 
-// --- Plots ------------------------------------------------------------------
-plotshape(buySetup == setupLen, "Buy 9", style=shape.labelup, location=location.belowbar, color=color.green, text="9", textcolor=color.white, size=size.tiny)
-plotshape(sellSetup == setupLen, "Sell 9", style=shape.labeldown, location=location.abovebar, color=color.red, text="9", textcolor=color.white, size=size.tiny)
-plotshape(buySig, "Buy 13", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.small)
-plotshape(sellSig, "Sell 13", style=shape.triangledown, location=location.abovebar, color=color.maroon, size=size.small)
+// ---------------------------------------------------------------------------
+// Plots
+// ---------------------------------------------------------------------------
+plotshape(buyComplete and not buyPerfected, "Buy 9", style=shape.labelup, location=location.belowbar, color=color.new(color.green, 0), text="9", textcolor=color.white, size=size.tiny)
+plotshape(buyPerfected, "Buy 9 perfected", style=shape.labelup, location=location.belowbar, color=color.new(color.lime, 0), text="9+", textcolor=color.black, size=size.tiny)
+plotshape(sellComplete and not sellPerfected, "Sell 9", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0), text="9", textcolor=color.white, size=size.tiny)
+plotshape(sellPerfected, "Sell 9 perfected", style=shape.labeldown, location=location.abovebar, color=color.new(color.maroon, 0), text="9+", textcolor=color.white, size=size.tiny)
 
-// Live counts as numbers under/over the bars.
-plotchar(buySetup > 0 and buySetup < setupLen, "Buy count active", "", location.belowbar, color=color.new(color.green, 60), size=size.tiny)
-plotchar(sellSetup > 0 and sellSetup < setupLen, "Sell count active", "", location.abovebar, color=color.new(color.red, 60), size=size.tiny)
+plotshape(buy13, "Buy 13", style=shape.labelup, location=location.belowbar, color=color.new(color.lime, 0), text="13", textcolor=color.black, size=size.small)
+plotshape(sell13, "Sell 13", style=shape.labeldown, location=location.abovebar, color=color.new(color.maroon, 0), text="13", textcolor=color.white, size=size.small)
+plotshape(buyDeferred, "Buy 13 deferred", style=shape.xcross, location=location.belowbar, color=color.new(color.gray, 30), size=size.tiny)
+plotshape(sellDeferred, "Sell 13 deferred", style=shape.xcross, location=location.abovebar, color=color.new(color.gray, 30), size=size.tiny)
 
-if buySetup > 0 and buySetup < setupLen
-    label.new(bar_index, low, str.tostring(buySetup), xloc=xloc.bar_index, style=label.style_label_up, color=color.new(color.green, 100), textcolor=color.new(color.green, 40), size=size.tiny)
-if sellSetup > 0 and sellSetup < setupLen
-    label.new(bar_index, high, str.tostring(sellSetup), xloc=xloc.bar_index, style=label.style_label_down, color=color.new(color.red, 100), textcolor=color.new(color.red, 40), size=size.tiny)
+if showCounts and buySetup > 0 and buySetup < setupLen
+    label.new(bar_index, low, str.tostring(buySetup), xloc=xloc.bar_index, yloc=yloc.belowbar, style=label.style_none, textcolor=color.new(color.green, 25), size=size.tiny)
+if showCounts and sellSetup > 0 and sellSetup < setupLen
+    label.new(bar_index, high, str.tostring(sellSetup), xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_none, textcolor=color.new(color.red, 25), size=size.tiny)
 
-alertcondition(buySig, "TD Sequential Buy 13", "TD Sequential buy countdown completed")
-alertcondition(sellSig, "TD Sequential Sell 13", "TD Sequential sell countdown completed")
+alertcondition(buy13, "TD Sequential Buy 13", "TD Sequential buy countdown completed")
+alertcondition(sell13, "TD Sequential Sell 13", "TD Sequential sell countdown completed")
+alertcondition(buyCancelled or sellCancelled, "Countdown cancelled", "An active TD countdown was cancelled")

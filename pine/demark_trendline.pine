@@ -40,20 +40,28 @@ if hiPrice.size() >= 2
     n = hiPrice.size()
     supplyLine := line.new(hiBar.get(n - 2), hiPrice.get(n - 2), hiBar.get(n - 1), hiPrice.get(n - 1), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.red, 0), width=2)
 
-// Projection: where the line sits one bar ahead.
-demandNow = loPrice.size() >= 2 ? line.get_price(demandLine, bar_index) : na
-supplyNow = hiPrice.size() >= 2 ? line.get_price(supplyLine, bar_index) : na
-demandSlope = loPrice.size() >= 2 ? demandNow - line.get_price(demandLine, bar_index - 1) : na
-supplySlope = hiPrice.size() >= 2 ? supplyNow - line.get_price(supplyLine, bar_index - 1) : na
+// Projection: where the line sits one bar ahead. line.get_price on an
+// undefined line id is a runtime error, so guard every read.
+float demandNow = na
+float demandPrev = na
+float supplyNow = na
+float supplyPrev = na
 
-plot(loPrice.size() >= 2 ? demandNow + demandSlope : na, "Demand Projection", color=color.new(color.green, 50), style=plot.style_circles, offset=1)
-plot(hiPrice.size() >= 2 ? supplyNow + supplySlope : na, "Supply Projection", color=color.new(color.red, 50), style=plot.style_circles, offset=1)
+if not na(demandLine)
+    demandNow := line.get_price(demandLine, bar_index)
+    demandPrev := line.get_price(demandLine, bar_index - 1)
+if not na(supplyLine)
+    supplyNow := line.get_price(supplyLine, bar_index)
+    supplyPrev := line.get_price(supplyLine, bar_index - 1)
 
-demandBreak = not na(demandNow) and close < line.get_price(demandLine, bar_index)
-supplyBreak = not na(supplyNow) and close > line.get_price(supplyLine, bar_index)
+plot(na(demandNow) ? na : demandNow + (demandNow - demandPrev), "Demand Projection", color=color.new(color.green, 50), style=plot.style_circles, offset=1)
+plot(na(supplyNow) ? na : supplyNow + (supplyNow - supplyPrev), "Supply Projection", color=color.new(color.red, 50), style=plot.style_circles, offset=1)
 
-plotshape(demandBreak, "Demand Break", style=shape.xcross, location=location.belowbar, color=color.red, size=size.tiny)
-plotshape(supplyBreak, "Supply Break", style=shape.xcross, location=location.abovebar, color=color.green, size=size.tiny)
+demandBreak = not na(demandNow) and close < demandNow
+supplyBreak = not na(supplyNow) and close > supplyNow
+
+plotshape(demandBreak and not demandBreak[1], "Demand Break", style=shape.xcross, location=location.belowbar, color=color.red, size=size.tiny)
+plotshape(supplyBreak and not supplyBreak[1], "Supply Break", style=shape.xcross, location=location.abovebar, color=color.green, size=size.tiny)
 
 alertcondition(demandBreak, "Demand Trendline Broken", "Price closed through the DeMark demand trendline")
 alertcondition(supplyBreak, "Supply Trendline Broken", "Price closed through the DeMark supply trendline")

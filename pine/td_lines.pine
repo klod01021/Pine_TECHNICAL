@@ -44,15 +44,20 @@ if hiPrice.size() >= 2
     n = hiPrice.size()
     supplyLine := line.new(hiBar.get(n - 2), hiPrice.get(n - 2), hiBar.get(n - 1), hiPrice.get(n - 1), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.red, 0), width=2)
 
-// Break alerts on the level-1 lines.
-demandVal = loPrice.size() >= 2 ? line.get_price(demandLine, bar_index) : na
-supplyVal = hiPrice.size() >= 2 ? line.get_price(supplyLine, bar_index) : na
+// Break alerts on the level-1 lines. line.get_price on an undefined line id is
+// a runtime error, so read the values behind an explicit na guard.
+float demandVal = na
+float supplyVal = na
+if not na(demandLine)
+    demandVal := line.get_price(demandLine, bar_index)
+if not na(supplyLine)
+    supplyVal := line.get_price(supplyLine, bar_index)
 
 demandBreak = not na(demandVal) and close < demandVal
 supplyBreak = not na(supplyVal) and close > supplyVal
 
-plotshape(demandBreak, "Demand Break", style=shape.xcross, location=location.belowbar, color=color.red, size=size.tiny)
-plotshape(supplyBreak, "Supply Break", style=shape.xcross, location=location.abovebar, color=color.green, size=size.tiny)
+plotshape(demandBreak and not demandBreak[1], "Demand Break", style=shape.xcross, location=location.belowbar, color=color.red, size=size.tiny)
+plotshape(supplyBreak and not supplyBreak[1], "Supply Break", style=shape.xcross, location=location.abovebar, color=color.green, size=size.tiny)
 
 alertcondition(demandBreak, "TD Demand Line Broken", "Price closed below the TD demand line")
 alertcondition(supplyBreak, "TD Supply Line Broken", "Price closed above the TD supply line")

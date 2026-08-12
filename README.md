@@ -91,6 +91,41 @@ print(seq[seq["buy_signal"]])   # bars that printed a buy 13
 
 See [`python/README.md`](python/README.md) for the full API.
 
+## Verification
+
+```bash
+python3 tools/lint_pine.py        # static check of all 22 Pine v6 scripts
+python3 python/test_correctness.py  # 22 hand-verified DeMark rule tests
+cd python && python3 self_test.py   # all 20 indicators over synthetic data
+```
+
+`tools/lint_pine.py` catches reserved words used as identifiers, wrong
+version annotations, unbalanced brackets, bad indentation and v5-era
+function names. It is not a compiler — TradingView has no offline one — but
+it prevents the obvious breakage.
+
+## Rules implemented
+
+The counts follow DeMark's published specification, including the details
+that are easy to get wrong:
+
+- **Setup** resets on *any* bar failing the strict comparison, including an
+  equal close.
+- **Setup perfection**: bar 8 or 9's low at or below the lows of bars 6 and 7
+  (mirrored for sells).
+- **TDST**: a completed **buy** setup defines **resistance** at the highest
+  high of its nine bars; a completed **sell** setup defines **support** at
+  the lowest low. (Not the other way round — this is a common error.)
+- **13-vs-8 deferral**: the 13th countdown bar only qualifies if its low is
+  at or below the close of countdown bar 8 (buy), or its high at or above it
+  (sell). Otherwise the 13 is deferred, not cancelled.
+- **Countdown cancellation** on an opposite-direction setup or a TDST
+  violation.
+- **TD Combo**: four conditions for counts 1–10, then the
+  prior-counted-close rule for 11–13.
+- **TD REI**: DeMark's two-filter formula referencing lows 5/6 and closes 7/8
+  bars back, with ±45 thresholds and the six-bar duration test.
+
 ## Notes
 
 - The implementations follow the published rules in DeMark's *The New

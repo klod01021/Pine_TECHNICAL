@@ -1,50 +1,66 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// TD Setup Trend (TDST) — support/resistance from completed setups
+// TD Setup Trend (TDST) — Tom DeMark
+//
+// A completed BUY setup (nine consecutive lower closes) defines TDST
+// RESISTANCE at the highest high of those nine bars — the level whose breach
+// invalidates the bullish reversal thesis. A completed SELL setup defines TDST
+// SUPPORT at the lowest low of its nine bars.
 //@version=6
 indicator("TD Setup Trend (TDST)", shorttitle="TDST", overlay=true, timeframe="", timeframe_gaps=true)
 
-setupLen = input.int(9, "Setup Length", minval=1)
-cmp = input.int(4, "Comparison Bars", minval=1)
+setupLen = input.int(9, "Setup length", minval=1)
+cmp = input.int(4, "Comparison bars", minval=1)
+extendLevels = input.bool(true, "Keep levels after they are broken")
 
 // --- TD Setup -------------------------------------------------------------
 var int buySetup = 0
 var int sellSetup = 0
+
 if close < close[cmp]
-    buySetup += 1
+    buySetup := buySetup + 1
     sellSetup := 0
 else if close > close[cmp]
-    sellSetup += 1
+    sellSetup := sellSetup + 1
     buySetup := 0
+else
+    buySetup := 0
+    sellSetup := 0
 
 if buySetup > setupLen
     buySetup := 1
 if sellSetup > setupLen
     sellSetup := 1
 
+buyComplete = buySetup == setupLen
+sellComplete = sellSetup == setupLen
+
 // --- TDST levels ------------------------------------------------------------
-var float support = na
 var float resistance = na
+var float support = na
 
-if buySetup == setupLen
-    support := ta.lowest(low, setupLen)
-if sellSetup == setupLen
+if buyComplete
     resistance := ta.highest(high, setupLen)
+if sellComplete
+    support := ta.lowest(low, setupLen)
 
-supportBroken = false
-resistanceBroken = false
+resistanceBroken = not na(resistance) and close > resistance
+supportBroken = not na(support) and close < support
 
-if not na(support) and close < support
-    supportBroken := true
-    support := na
-if not na(resistance) and close > resistance
-    resistanceBroken := true
-    resistance := na
+// Optionally drop a level once price closes through it.
+if not extendLevels
+    if resistanceBroken
+        resistance := na
+    if supportBroken
+        support := na
 
-plot(support, "TDST Support", color=color.new(color.green, 0), style=plot.style_linebr, linewidth=2)
 plot(resistance, "TDST Resistance", color=color.new(color.red, 0), style=plot.style_linebr, linewidth=2)
+plot(support, "TDST Support", color=color.new(color.green, 0), style=plot.style_linebr, linewidth=2)
 
-plotshape(supportBroken, "Support Broken", style=shape.xcross, location=location.belowbar, color=color.red, size=size.tiny)
-plotshape(resistanceBroken, "Resistance Broken", style=shape.xcross, location=location.abovebar, color=color.green, size=size.tiny)
+plotshape(resistanceBroken and not resistanceBroken[1], "Resistance broken", style=shape.xcross, location=location.abovebar, color=color.new(color.green, 0), size=size.tiny)
+plotshape(supportBroken and not supportBroken[1], "Support broken", style=shape.xcross, location=location.belowbar, color=color.new(color.red, 0), size=size.tiny)
 
-alertcondition(supportBroken, "TDST Support Broken", "Price closed below TDST support")
-alertcondition(resistanceBroken, "TDST Resistance Broken", "Price closed above TDST resistance")
+plotshape(buyComplete, "Buy 9", style=shape.labelup, location=location.belowbar, color=color.new(color.green, 0), text="9", textcolor=color.white, size=size.tiny)
+plotshape(sellComplete, "Sell 9", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0), text="9", textcolor=color.white, size=size.tiny)
+
+alertcondition(supportBroken and not supportBroken[1], "TDST support broken", "Price closed below TDST support")
+alertcondition(resistanceBroken and not resistanceBroken[1], "TDST resistance broken", "Price closed above TDST resistance")

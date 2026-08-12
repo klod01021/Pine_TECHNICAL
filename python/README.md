@@ -31,6 +31,13 @@ Run the full self-test (validates all 20 indicators on synthetic data):
 python3 self_test.py
 ```
 
+Run the hand-verified DeMark rule tests (22 checks built from small
+hand-constructed price series):
+
+```bash
+python3 test_correctness.py
+```
+
 Run the demo over your own CSV:
 
 ```bash
@@ -56,10 +63,15 @@ python3 demo.py path/to/ohlc.csv
 
 | Function | Indicator | Key outputs |
 |---|---|---|
-| `td_setup` | TD Setup 1–9 | `buy_setup`, `sell_setup` |
-| `td_countdown` | Classic Countdown 1–13 | `buy_countdown`, `sell_countdown`, `*_signal` |
+| `td_setup` | TD Setup 1–9 + perfection | `buy_setup`, `buy_setup_complete`, `buy_setup_perfected` |
+| `td_countdown` | Countdown 1–13 + deferral | `buy_countdown`, `buy_signal`, `buy_deferred`, `buy_cancelled` |
 | `td_combo` | TD Combo Countdown | `buy_combo`, `sell_combo`, `*_signal` |
-| `td_sequential_ultimate` | Sequential + qualifiers | `buy_aggressive`, `buy_conservative`, ... |
+| `td_sequential_ultimate` | Sequential + Combo + confluence | `buy_confluence`, `buy_combo`, ... |
+
+A setup count of `0` means no setup is active on that bar, matching the Pine
+scripts. `td_countdown` accepts `use_deferral`, `cancel_on_opposite_setup`
+and `cancel_on_tdst` flags (all on by default) if you want the unfiltered
+textbook count instead.
 
 ### Levels and trend (`demark_indicators.levels`)
 

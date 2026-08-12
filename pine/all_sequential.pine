@@ -1,139 +1,218 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// DeMark Sequential Suite — TD Setup, classic Countdown, TD Combo and the
-// Ultimate qualifiers on one chart.
+// DeMark Sequential Suite — TD Setup (with perfection), TD Countdown (with the
+// 13-vs-8 deferral and cancellation rules) and TD Combo on one chart.
 //@version=6
 indicator("DeMark Sequential Suite", shorttitle="DeM Sequential", overlay=true, timeframe="", timeframe_gaps=true, max_labels_count=500)
 
-setupLen = input.int(9, "Setup Length", minval=1)
-cdLen = input.int(13, "Countdown Length", minval=1)
-cmp = input.int(4, "Comparison Bars", minval=1)
-showCounts = input.bool(true, "Show live setup counts")
-showCombo = input.bool(true, "Show Combo 13s")
-showUltimate = input.bool(true, "Show Aggressive / Conservative markers")
+setupLen = input.int(9, "Setup length", minval=1, group="Setup")
+cmp = input.int(4, "Comparison bars", minval=1, group="Setup")
+showCounts = input.bool(true, "Show running setup counts", group="Setup")
+
+cdLen = input.int(13, "Countdown length", minval=2, group="Countdown")
+useDeferral = input.bool(true, "Apply 13-vs-8 deferral rule", group="Countdown")
+cancelOnOpposite = input.bool(true, "Cancel on opposite setup", group="Countdown")
+cancelOnTdst = input.bool(true, "Cancel on TDST violation", group="Countdown")
+showCdCounts = input.bool(false, "Show running countdown counts", group="Countdown")
+
+showCombo = input.bool(true, "Show TD Combo", group="Combo")
+strictThrough = input.int(10, "Strict conditions apply through count", minval=1, maxval=13, group="Combo")
 
 // ---------------------------------------------------------------------------
-// TD Setup (shared by all three countdowns)
+// TD Setup — a bar failing the strict comparison (including an equal close)
+// resets the count to zero.
 // ---------------------------------------------------------------------------
 var int buySetup = 0
 var int sellSetup = 0
+
 if close < close[cmp]
-    buySetup += 1
+    buySetup := buySetup + 1
     sellSetup := 0
 else if close > close[cmp]
-    sellSetup += 1
+    sellSetup := sellSetup + 1
     buySetup := 0
+else
+    buySetup := 0
+    sellSetup := 0
 
 if buySetup > setupLen
     buySetup := 1
 if sellSetup > setupLen
     sellSetup := 1
 
+buyComplete = buySetup == setupLen
+sellComplete = sellSetup == setupLen
+
+// Perfection: the low of bar 8 or 9 is at or below the lows of bars 6 and 7.
+buyPerfected = buyComplete and math.min(low[1], low) <= math.min(low[3], low[2])
+sellPerfected = sellComplete and math.max(high[1], high) >= math.max(high[3], high[2])
+
 // ---------------------------------------------------------------------------
-// Classic Countdown
+// TDST levels (buy setup -> resistance, sell setup -> support)
+// ---------------------------------------------------------------------------
+var float tdstResistance = na
+var float tdstSupport = na
+if buyComplete
+    tdstResistance := ta.highest(high, setupLen)
+if sellComplete
+    tdstSupport := ta.lowest(low, setupLen)
+
+// ---------------------------------------------------------------------------
+// TD Countdown
 // ---------------------------------------------------------------------------
 var int buyCd = 0
 var int sellCd = 0
-var bool buyCdActive = false
-var bool sellCdActive = false
+var bool buyActive = false
+var bool sellActive = false
 var float buyCd8Close = na
 var float sellCd8Close = na
-var float buyCdLowest = na
-var float sellCdHighest = na
+var float buyGuardLevel = na   // TDST resistance of the generating buy setup
+var float sellGuardLevel = na
 
-if buySetup == setupLen
-    buyCdActive := true
+bool buyCancelled = false
+bool sellCancelled = false
+
+if buyComplete
+    buyActive := true
     buyCd := 0
     buyCd8Close := na
-    buyCdLowest := na
-if sellSetup == setupLen
-    sellCdActive := true
+    buyGuardLevel := ta.highest(high, setupLen)
+    if cancelOnOpposite and sellActive
+        sellActive := false
+        sellCancelled := true
+if sellComplete
+    sellActive := true
     sellCd := 0
     sellCd8Close := na
-    sellCdHighest := na
+    sellGuardLevel := ta.lowest(low, setupLen)
+    if cancelOnOpposite and buyActive
+        buyActive := false
+        buyCancelled := true
 
-buy13 = false
-sell13 = false
+if cancelOnTdst and buyActive and not na(buyGuardLevel) and close > buyGuardLevel
+    buyActive := false
+    buyCancelled := true
+if cancelOnTdst and sellActive and not na(sellGuardLevel) and close < sellGuardLevel
+    sellActive := false
+    sellCancelled := true
 
-if buyCdActive and bar_index >= 2 and close <= low[2]
-    buyCd += 1
-    if buyCd == 8
-        buyCd8Close := close
-    buyCdLowest := na(buyCdLowest) ? low : math.min(buyCdLowest, low)
-    if buyCd == cdLen
-        buy13 := true
-        buyCdActive := false
+bool buy13 = false
+bool sell13 = false
+bool buyDeferred = false
+bool sellDeferred = false
+int buyCdBar = 0
+int sellCdBar = 0
 
-if sellCdActive and bar_index >= 2 and close >= high[2]
-    sellCd += 1
-    if sellCd == 8
-        sellCd8Close := close
-    sellCdHighest := na(sellCdHighest) ? high : math.max(sellCdHighest, high)
-    if sellCd == cdLen
-        sell13 := true
-        sellCdActive := false
+if buyActive and bar_index >= 2 and close <= low[2]
+    if buyCd == cdLen - 1
+        // 13-vs-8: the 13 bar's low must reach the close of countdown bar 8.
+        bool qualified = not useDeferral or na(buyCd8Close) or low <= buyCd8Close
+        if qualified
+            buyCd := buyCd + 1
+            buyCdBar := buyCd
+            buy13 := true
+            buyActive := false
+        else
+            buyDeferred := true
+    else
+        buyCd := buyCd + 1
+        buyCdBar := buyCd
+        if buyCd == 8
+            buyCd8Close := close
+
+if sellActive and bar_index >= 2 and close >= high[2]
+    if sellCd == cdLen - 1
+        bool qualified2 = not useDeferral or na(sellCd8Close) or high >= sellCd8Close
+        if qualified2
+            sellCd := sellCd + 1
+            sellCdBar := sellCd
+            sell13 := true
+            sellActive := false
+        else
+            sellDeferred := true
+    else
+        sellCd := sellCd + 1
+        sellCdBar := sellCd
+        if sellCd == 8
+            sellCd8Close := close
 
 // ---------------------------------------------------------------------------
-// TD Combo Countdown (stricter: marching lows/highs)
+// TD Combo — four conditions through `strictThrough`, then the
+// prior-counted-close rule only.
 // ---------------------------------------------------------------------------
 var int buyCombo = 0
 var int sellCombo = 0
 var bool buyComboActive = false
 var bool sellComboActive = false
-var float lastBuyLow = na
-var float lastSellHigh = na
+var float buyComboPrevClose = na
+var float sellComboPrevClose = na
 
-if buySetup == setupLen
+if buyComplete
     buyComboActive := true
     buyCombo := 0
-    lastBuyLow := na
-if sellSetup == setupLen
+    buyComboPrevClose := na
+    if cancelOnOpposite
+        sellComboActive := false
+if sellComplete
     sellComboActive := true
     sellCombo := 0
-    lastSellHigh := na
-
-buyCombo13 = false
-sellCombo13 = false
-
-if buyComboActive and bar_index >= 2 and close <= low[2] and (na(lastBuyLow) or low < lastBuyLow)
-    buyCombo += 1
-    lastBuyLow := low
-    if buyCombo == cdLen
-        buyCombo13 := true
+    sellComboPrevClose := na
+    if cancelOnOpposite
         buyComboActive := false
 
-if sellComboActive and bar_index >= 2 and close >= high[2] and (na(lastSellHigh) or high > lastSellHigh)
-    sellCombo += 1
-    lastSellHigh := high
-    if sellCombo == cdLen
-        sellCombo13 := true
-        sellComboActive := false
+bool buyCombo13 = false
+bool sellCombo13 = false
 
-// ---------------------------------------------------------------------------
-// Ultimate qualifiers on the classic 13
-// ---------------------------------------------------------------------------
-buyAggressive = buy13 and not na(buyCd8Close) and close <= buyCd8Close
-buyConservative = buy13 and low <= buyCdLowest
-sellAggressive = sell13 and not na(sellCd8Close) and close >= sellCd8Close
-sellConservative = sell13 and high >= sellCdHighest
+if buyComboActive and bar_index >= 2
+    bool belowPrev = na(buyComboPrevClose) or close < buyComboPrevClose
+    bool ok = buyCombo < strictThrough ? (close <= low[2] and low <= low[1] and close < close[1] and belowPrev) : belowPrev
+    if ok
+        buyCombo := buyCombo + 1
+        buyComboPrevClose := close
+        if buyCombo == cdLen
+            buyCombo13 := true
+            buyComboActive := false
+
+if sellComboActive and bar_index >= 2
+    bool abovePrev = na(sellComboPrevClose) or close > sellComboPrevClose
+    bool ok2 = sellCombo < strictThrough ? (close >= high[2] and high >= high[1] and close > close[1] and abovePrev) : abovePrev
+    if ok2
+        sellCombo := sellCombo + 1
+        sellComboPrevClose := close
+        if sellCombo == cdLen
+            sellCombo13 := true
+            sellComboActive := false
 
 // ---------------------------------------------------------------------------
 // Plots
 // ---------------------------------------------------------------------------
-plotshape(buySetup == setupLen, "Buy 9", style=shape.labelup, location=location.belowbar, color=color.green, text="9", textcolor=color.white, size=size.tiny)
-plotshape(sellSetup == setupLen, "Sell 9", style=shape.labeldown, location=location.abovebar, color=color.red, text="9", textcolor=color.white, size=size.tiny)
-plotshape(buy13, "Buy 13", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.small)
-plotshape(sell13, "Sell 13", style=shape.triangledown, location=location.abovebar, color=color.maroon, size=size.small)
-plotshape(showCombo and buyCombo13, "Combo Buy 13", style=shape.diamond, location=location.belowbar, color=color.aqua, size=size.small)
-plotshape(showCombo and sellCombo13, "Combo Sell 13", style=shape.diamond, location=location.abovebar, color=color.fuchsia, size=size.small)
-plotshape(showUltimate and buyConservative, "Buy 13 Conservative", style=shape.circle, location=location.belowbar, color=color.blue, size=size.tiny)
-plotshape(showUltimate and sellConservative, "Sell 13 Conservative", style=shape.circle, location=location.abovebar, color=color.orange, size=size.tiny)
+plotshape(buyComplete and not buyPerfected, "Buy 9", style=shape.labelup, location=location.belowbar, color=color.new(color.green, 0), text="9", textcolor=color.white, size=size.tiny)
+plotshape(buyPerfected, "Buy 9 perfected", style=shape.labelup, location=location.belowbar, color=color.new(color.lime, 0), text="9⁺", textcolor=color.black, size=size.tiny)
+plotshape(sellComplete and not sellPerfected, "Sell 9", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0), text="9", textcolor=color.white, size=size.tiny)
+plotshape(sellPerfected, "Sell 9 perfected", style=shape.labeldown, location=location.abovebar, color=color.new(color.maroon, 0), text="9⁺", textcolor=color.white, size=size.tiny)
+
+plotshape(buy13, "Buy 13", style=shape.labelup, location=location.belowbar, color=color.new(color.lime, 0), text="13", textcolor=color.black, size=size.small)
+plotshape(sell13, "Sell 13", style=shape.labeldown, location=location.abovebar, color=color.new(color.maroon, 0), text="13", textcolor=color.white, size=size.small)
+
+plotshape(showCombo and buyCombo13, "Combo Buy 13", style=shape.diamond, location=location.belowbar, color=color.new(color.aqua, 0), size=size.small)
+plotshape(showCombo and sellCombo13, "Combo Sell 13", style=shape.diamond, location=location.abovebar, color=color.new(color.fuchsia, 0), size=size.small)
+
+plotshape(buyDeferred, "Buy 13 deferred", style=shape.xcross, location=location.belowbar, color=color.new(color.gray, 30), size=size.tiny)
+plotshape(sellDeferred, "Sell 13 deferred", style=shape.xcross, location=location.abovebar, color=color.new(color.gray, 30), size=size.tiny)
 
 if showCounts and buySetup > 0 and buySetup < setupLen
-    label.new(bar_index, low, str.tostring(buySetup), xloc=xloc.bar_index, style=label.style_label_up, color=color.new(color.green, 100), textcolor=color.new(color.green, 40), size=size.tiny)
+    label.new(bar_index, low, str.tostring(buySetup), xloc=xloc.bar_index, style=label.style_none, textcolor=color.new(color.green, 25), size=size.tiny)
 if showCounts and sellSetup > 0 and sellSetup < setupLen
-    label.new(bar_index, high, str.tostring(sellSetup), xloc=xloc.bar_index, style=label.style_label_down, color=color.new(color.red, 100), textcolor=color.new(color.red, 40), size=size.tiny)
+    label.new(bar_index, high, str.tostring(sellSetup), xloc=xloc.bar_index, style=label.style_none, textcolor=color.new(color.red, 25), size=size.tiny)
+if showCdCounts and buyCdBar > 0 and not buy13
+    label.new(bar_index, low, str.tostring(buyCdBar), xloc=xloc.bar_index, yloc=yloc.belowbar, style=label.style_none, textcolor=color.new(color.teal, 15), size=size.tiny)
+if showCdCounts and sellCdBar > 0 and not sell13
+    label.new(bar_index, high, str.tostring(sellCdBar), xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_none, textcolor=color.new(color.orange, 15), size=size.tiny)
 
-alertcondition(buy13, "Buy 13", "Classic buy countdown completed")
-alertcondition(sell13, "Sell 13", "Classic sell countdown completed")
-alertcondition(buyCombo13, "Combo Buy 13", "Combo buy countdown completed")
-alertcondition(sellCombo13, "Combo Sell 13", "Combo sell countdown completed")
+plot(tdstResistance, "TDST Resistance", color=color.new(color.red, 40), style=plot.style_linebr)
+plot(tdstSupport, "TDST Support", color=color.new(color.green, 40), style=plot.style_linebr)
+
+alertcondition(buy13, "Sequential Buy 13", "TD Sequential buy countdown completed")
+alertcondition(sell13, "Sequential Sell 13", "TD Sequential sell countdown completed")
+alertcondition(buyCombo13, "Combo Buy 13", "TD Combo buy countdown completed")
+alertcondition(sellCombo13, "Combo Sell 13", "TD Combo sell countdown completed")
+alertcondition(buyCancelled or sellCancelled, "Countdown cancelled", "An active TD countdown was cancelled")
