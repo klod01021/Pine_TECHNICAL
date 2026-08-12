@@ -68,6 +68,24 @@ add more than these three scripts to a chart. This is enforced by
 `tools/check_suite_coverage.py`, which fails if any indicator's plots or
 logic go missing from its suite.
 
+## Keeping the chart readable
+
+Two settings matter most if the chart starts to look crowded or the candles
+get squashed:
+
+- **Project lines forward (bars)** and **Stop projecting past this % from
+  price** (Levels suite, "Display" group). Trendlines are *not* extended to
+  infinity — a steep line taken to the right edge forces TradingView's
+  auto-scale to include huge prices and compresses the candles into a thin
+  band. The projection is capped at a number of bars and stops early if the
+  line would travel further than the given percentage from current price.
+- **TD Point left/right bars.** DeMark's strict TD Point is 1 bar either
+  side, which on an intraday chart marks nearly every bar. The default is 3;
+  set both to 1 for the textbook definition.
+
+The Levels suite ships with only TDST, TD Lines and the moving averages
+enabled. Switch the rest on one at a time rather than all at once.
+
 ## Use in TradingView
 
 1. Open the [Pine Editor](https://www.tradingview.com/pine-editor/) on

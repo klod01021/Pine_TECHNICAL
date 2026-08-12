@@ -205,6 +205,15 @@ def check_file(path: pathlib.Path) -> None:
                     f"called on every bar; hoist it out of the conditional block"
                 )
 
+        # --- unbounded line extension --------------------------------------
+        # A sloped line extended to infinity drags the chart's auto-scale with
+        # it and squashes the price action into an unreadable band.
+        if "line.new" in line and re.search(r"extend\s*=\s*extend\.(right|both)", line):
+            warnings.append(
+                f"{name}:{lineno}: line.new extends without bound; a steep slope will "
+                f"distort the chart's price scale. Prefer a capped projection."
+            )
+
         # --- ta.* length argument that is a function parameter --------------
         lm = LENGTH_TA_RE.search(line)
         if lm and lm.group(2) in func_params:

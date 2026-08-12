@@ -3,8 +3,11 @@
 //@version=6
 indicator("TD Points", shorttitle="TD Points", overlay=true)
 
-left = input.int(1, "Left Bars", minval=1)
-right = input.int(1, "Right Bars", minval=1)
+// DeMark's strict TD Point is 1 bar either side, but on an intraday chart that
+// marks almost every bar. 3 is a readable default; set both to 1 for the
+// textbook definition.
+left = input.int(3, "Left Bars", minval=1)
+right = input.int(3, "Right Bars", minval=1)
 
 ph = ta.pivothigh(high, left, right)
 pl = ta.pivotlow(low, left, right)

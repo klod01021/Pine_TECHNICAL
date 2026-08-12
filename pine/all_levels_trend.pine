@@ -9,34 +9,59 @@ indicator("DeMark Levels & Trend Suite", shorttitle="DeM Levels", overlay=true, 
 
 // ---------------------------------------------------------------------------
 // Inputs
+//
+// Defaults are deliberately conservative: only TDST, TD Lines and the moving
+// averages are on, because switching everything on at once buries the candles.
+// Turn the rest on one at a time.
 // ---------------------------------------------------------------------------
+projectBars = input.int(20, "Project lines forward (bars)", minval=0, maxval=200, group="Display")
+maxDeviationPct = input.float(15.0, "Stop projecting past this % from price", minval=1.0, maxval=100.0, group="Display")
+
 showTdst = input.bool(true, "TDST levels", group="TDST")
 setupLen = input.int(9, "Setup length", minval=1, group="TDST")
 cmp = input.int(4, "Comparison bars", minval=1, group="TDST")
 
-showPoints = input.bool(true, "TD Point markers", group="TD Points")
-leftBars = input.int(1, "TD Point left bars", minval=1, group="TD Points")
-rightBars = input.int(1, "TD Point right bars", minval=1, group="TD Points")
+showPoints = input.bool(false, "TD Point markers", group="TD Points")
+leftBars = input.int(3, "TD Point left bars", minval=1, group="TD Points")
+rightBars = input.int(3, "TD Point right bars", minval=1, group="TD Points")
 
 showTdLines = input.bool(true, "TD Supply/Demand lines", group="TD Lines")
 lineLevels = input.int(1, "Line levels to draw (1-3)", minval=1, maxval=3, group="TD Lines")
-showProjection = input.bool(true, "One-bar-ahead projections", group="TD Lines")
+showProjection = input.bool(false, "One-bar-ahead projections", group="TD Lines")
 
 showMa = input.bool(true, "TD MA I/II", group="TD Moving Average")
 fastLen = input.int(5, "TD MA I length", minval=1, group="TD Moving Average")
 slowLen = input.int(13, "TD MA II length", minval=1, group="TD Moving Average")
 maConfirmBars = input.int(1, "Confirmation bars", minval=1, group="TD Moving Average")
-showMaSignals = input.bool(true, "Confirmation bar colouring and crosses", group="TD Moving Average")
+showMaSignals = input.bool(false, "Confirmation bar colouring and crosses", group="TD Moving Average")
 
 showRangeProj = input.bool(false, "Projected high/low", group="TD Range Projection")
 
 showRetr = input.bool(false, "Retracement magnets", group="TD Retracements")
 lookback = input.int(100, "Swing lookback", minval=2, group="TD Retracements")
-showRetrQualifier = input.bool(true, "Qualifier shading", group="TD Retracements")
+showRetrQualifier = input.bool(false, "Qualifier shading", group="TD Retracements")
 
 showWave = input.bool(false, "TD D-Wave count", group="TD D-Wave")
 waveLeft = input.int(5, "Wave pivot left bars", minval=1, group="TD D-Wave")
 waveRight = input.int(5, "Wave pivot right bars", minval=1, group="TD D-Wave")
+
+// ---------------------------------------------------------------------------
+// How far a trendline may be projected.
+//
+// A line drawn through two pivots and extended with `extend.right` runs to
+// infinity. When the slope is steep that forces the chart's auto-scale to
+// include enormous prices and squashes the candles into a thin band. Instead
+// the extension is capped at `projectBars` and stops early if the line would
+// travel further than `maxDeviationPct` away from the current price.
+// ---------------------------------------------------------------------------
+f_extendBars(x1, y1, x2, y2, maxBars, limitUp, limitDn) =>
+    float slope = (x2 - x1) == 0 ? 0.0 : (y2 - y1) / (x2 - x1)
+    float allowed = maxBars
+    if slope > 0.0
+        allowed := math.min(allowed, (limitUp - y2) / slope)
+    else if slope < 0.0
+        allowed := math.min(allowed, (limitDn - y2) / slope)
+    int(math.max(0.0, math.floor(allowed)))
 
 // ---------------------------------------------------------------------------
 // TD Setup (feeds TDST) — resets on a failed or equal comparison
@@ -124,31 +149,70 @@ var line supplyLine2 = na
 var line demandLine3 = na
 var line supplyLine3 = na
 
+limitUp = close * (1.0 + maxDeviationPct / 100.0)
+limitDn = close * (1.0 - maxDeviationPct / 100.0)
+
 if showTdLines and loPrice.size() >= 2
     line.delete(demandLine)
     int nLo = loPrice.size()
-    demandLine := line.new(loBar.get(nLo - 2), loPrice.get(nLo - 2), loBar.get(nLo - 1), loPrice.get(nLo - 1), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.green, 0), width=2)
+    int x1 = loBar.get(nLo - 2)
+    float y1 = loPrice.get(nLo - 2)
+    int x2 = loBar.get(nLo - 1)
+    float y2 = loPrice.get(nLo - 1)
+    int endX = math.max(bar_index, x2) + f_extendBars(x1, y1, x2, y2, projectBars, limitUp, limitDn)
+    float endY = (x2 - x1) == 0 ? y2 : y2 + (y2 - y1) / (x2 - x1) * (endX - x2)
+    demandLine := line.new(x1, y1, endX, endY, xloc=xloc.bar_index, color=color.new(color.green, 0), width=2)
 if showTdLines and lineLevels >= 2 and loPrice.size() >= 3
     line.delete(demandLine2)
     int nLo2 = loPrice.size()
-    demandLine2 := line.new(loBar.get(nLo2 - 3), loPrice.get(nLo2 - 3), loBar.get(nLo2 - 2), loPrice.get(nLo2 - 2), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.green, 45), width=1)
+    int a1 = loBar.get(nLo2 - 3)
+    float b1 = loPrice.get(nLo2 - 3)
+    int a2 = loBar.get(nLo2 - 2)
+    float b2 = loPrice.get(nLo2 - 2)
+    int endX2 = math.max(bar_index, a2) + f_extendBars(a1, b1, a2, b2, projectBars, limitUp, limitDn)
+    float endY2 = (a2 - a1) == 0 ? b2 : b2 + (b2 - b1) / (a2 - a1) * (endX2 - a2)
+    demandLine2 := line.new(a1, b1, endX2, endY2, xloc=xloc.bar_index, color=color.new(color.green, 45), width=1)
 if showTdLines and lineLevels >= 3 and loPrice.size() >= 4
     line.delete(demandLine3)
     int nLo3 = loPrice.size()
-    demandLine3 := line.new(loBar.get(nLo3 - 4), loPrice.get(nLo3 - 4), loBar.get(nLo3 - 3), loPrice.get(nLo3 - 3), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.green, 70), width=1)
+    int c1 = loBar.get(nLo3 - 4)
+    float d1 = loPrice.get(nLo3 - 4)
+    int c2 = loBar.get(nLo3 - 3)
+    float d2 = loPrice.get(nLo3 - 3)
+    int endX3 = math.max(bar_index, c2) + f_extendBars(c1, d1, c2, d2, projectBars, limitUp, limitDn)
+    float endY3 = (c2 - c1) == 0 ? d2 : d2 + (d2 - d1) / (c2 - c1) * (endX3 - c2)
+    demandLine3 := line.new(c1, d1, endX3, endY3, xloc=xloc.bar_index, color=color.new(color.green, 70), width=1)
 
 if showTdLines and hiPrice.size() >= 2
     line.delete(supplyLine)
     int nHi = hiPrice.size()
-    supplyLine := line.new(hiBar.get(nHi - 2), hiPrice.get(nHi - 2), hiBar.get(nHi - 1), hiPrice.get(nHi - 1), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.red, 0), width=2)
+    int p1 = hiBar.get(nHi - 2)
+    float q1 = hiPrice.get(nHi - 2)
+    int p2 = hiBar.get(nHi - 1)
+    float q2 = hiPrice.get(nHi - 1)
+    int endXh = math.max(bar_index, p2) + f_extendBars(p1, q1, p2, q2, projectBars, limitUp, limitDn)
+    float endYh = (p2 - p1) == 0 ? q2 : q2 + (q2 - q1) / (p2 - p1) * (endXh - p2)
+    supplyLine := line.new(p1, q1, endXh, endYh, xloc=xloc.bar_index, color=color.new(color.red, 0), width=2)
 if showTdLines and lineLevels >= 2 and hiPrice.size() >= 3
     line.delete(supplyLine2)
     int nHi2 = hiPrice.size()
-    supplyLine2 := line.new(hiBar.get(nHi2 - 3), hiPrice.get(nHi2 - 3), hiBar.get(nHi2 - 2), hiPrice.get(nHi2 - 2), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.red, 45), width=1)
+    int r1 = hiBar.get(nHi2 - 3)
+    float s1 = hiPrice.get(nHi2 - 3)
+    int r2 = hiBar.get(nHi2 - 2)
+    float s2 = hiPrice.get(nHi2 - 2)
+    int endXh2 = math.max(bar_index, r2) + f_extendBars(r1, s1, r2, s2, projectBars, limitUp, limitDn)
+    float endYh2 = (r2 - r1) == 0 ? s2 : s2 + (s2 - s1) / (r2 - r1) * (endXh2 - r2)
+    supplyLine2 := line.new(r1, s1, endXh2, endYh2, xloc=xloc.bar_index, color=color.new(color.red, 45), width=1)
 if showTdLines and lineLevels >= 3 and hiPrice.size() >= 4
     line.delete(supplyLine3)
     int nHi3 = hiPrice.size()
-    supplyLine3 := line.new(hiBar.get(nHi3 - 4), hiPrice.get(nHi3 - 4), hiBar.get(nHi3 - 3), hiPrice.get(nHi3 - 3), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.red, 70), width=1)
+    int t1 = hiBar.get(nHi3 - 4)
+    float u1 = hiPrice.get(nHi3 - 4)
+    int t2 = hiBar.get(nHi3 - 3)
+    float u2 = hiPrice.get(nHi3 - 3)
+    int endXh3 = math.max(bar_index, t2) + f_extendBars(t1, u1, t2, u2, projectBars, limitUp, limitDn)
+    float endYh3 = (t2 - t1) == 0 ? u2 : u2 + (u2 - u1) / (t2 - t1) * (endXh3 - t2)
+    supplyLine3 := line.new(t1, u1, endXh3, endYh3, xloc=xloc.bar_index, color=color.new(color.red, 70), width=1)
 
 // Read the line values through explicit guards; line.get_price on an
 // undefined line id is a runtime error.

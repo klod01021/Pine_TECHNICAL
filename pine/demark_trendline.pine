@@ -3,8 +3,22 @@
 //@version=6
 indicator("DeMark Trendline", shorttitle="DeMark TL", overlay=true, max_lines_count=500)
 
-left = input.int(1, "TD Point Left Bars", minval=1)
-right = input.int(1, "TD Point Right Bars", minval=1)
+left = input.int(3, "TD Point Left Bars", minval=1)
+right = input.int(3, "TD Point Right Bars", minval=1)
+projectBars = input.int(20, "Project lines forward (bars)", minval=0, maxval=200)
+maxDeviationPct = input.float(15.0, "Stop projecting past this % from price", minval=1.0, maxval=100.0)
+
+// A line extended with `extend.right` runs to infinity; when the slope is
+// steep that drags the chart's auto-scale with it and squashes the candles.
+// The projection is capped instead.
+f_extendBars(x1, y1, x2, y2, maxBars, limitUp, limitDn) =>
+    float slope = (x2 - x1) == 0 ? 0.0 : (y2 - y1) / (x2 - x1)
+    float allowed = maxBars
+    if slope > 0.0
+        allowed := math.min(allowed, (limitUp - y2) / slope)
+    else if slope < 0.0
+        allowed := math.min(allowed, (limitDn - y2) / slope)
+    int(math.max(0.0, math.floor(allowed)))
 
 ph = ta.pivothigh(high, left, right)
 pl = ta.pivotlow(low, left, right)
@@ -30,15 +44,30 @@ if not na(pl)
 var line demandLine = na
 var line supplyLine = na
 
+limitUp = close * (1.0 + maxDeviationPct / 100.0)
+limitDn = close * (1.0 - maxDeviationPct / 100.0)
+
 if loPrice.size() >= 2
     line.delete(demandLine)
-    n = loPrice.size()
-    demandLine := line.new(loBar.get(n - 2), loPrice.get(n - 2), loBar.get(n - 1), loPrice.get(n - 1), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.green, 0), width=2)
+    int n = loPrice.size()
+    int x1 = loBar.get(n - 2)
+    float y1 = loPrice.get(n - 2)
+    int x2 = loBar.get(n - 1)
+    float y2 = loPrice.get(n - 1)
+    int endX = math.max(bar_index, x2) + f_extendBars(x1, y1, x2, y2, projectBars, limitUp, limitDn)
+    float endY = (x2 - x1) == 0 ? y2 : y2 + (y2 - y1) / (x2 - x1) * (endX - x2)
+    demandLine := line.new(x1, y1, endX, endY, xloc=xloc.bar_index, color=color.new(color.green, 0), width=2)
 
 if hiPrice.size() >= 2
     line.delete(supplyLine)
-    n = hiPrice.size()
-    supplyLine := line.new(hiBar.get(n - 2), hiPrice.get(n - 2), hiBar.get(n - 1), hiPrice.get(n - 1), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.red, 0), width=2)
+    int m = hiPrice.size()
+    int p1 = hiBar.get(m - 2)
+    float q1 = hiPrice.get(m - 2)
+    int p2 = hiBar.get(m - 1)
+    float q2 = hiPrice.get(m - 1)
+    int endXh = math.max(bar_index, p2) + f_extendBars(p1, q1, p2, q2, projectBars, limitUp, limitDn)
+    float endYh = (p2 - p1) == 0 ? q2 : q2 + (q2 - q1) / (p2 - p1) * (endXh - p2)
+    supplyLine := line.new(p1, q1, endXh, endYh, xloc=xloc.bar_index, color=color.new(color.red, 0), width=2)
 
 // Projection: where the line sits one bar ahead. line.get_price on an
 // undefined line id is a runtime error, so guard every read.

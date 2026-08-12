@@ -259,6 +259,66 @@ def test_countdown_deferral() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Trendline projection clamp (mirrors f_extendBars in the Pine scripts)
+# ---------------------------------------------------------------------------
+
+def _extend_bars(x1, y1, x2, y2, max_bars, limit_up, limit_dn) -> int:
+    """Python mirror of the Pine f_extendBars helper."""
+    slope = 0.0 if (x2 - x1) == 0 else (y2 - y1) / (x2 - x1)
+    allowed = float(max_bars)
+    if slope > 0.0:
+        allowed = min(allowed, (limit_up - y2) / slope)
+    elif slope < 0.0:
+        allowed = min(allowed, (limit_dn - y2) / slope)
+    return int(max(0.0, np.floor(allowed)))
+
+
+def test_trendline_projection_is_bounded() -> None:
+    """A steep trendline must not project off to an absurd price.
+
+    This is what made the chart unreadable: `extend.right` runs a sloped line
+    to infinity, so the auto-scale expands to fit it and the candles collapse
+    into a thin band.
+    """
+    close_price = 100.0
+    max_dev = 0.15
+    limit_up = close_price * (1 + max_dev)
+    limit_dn = close_price * (1 - max_dev)
+    max_bars = 20
+
+    cases = [
+        ("steep up", 0, 100.0, 10, 140.0),
+        ("steep down", 0, 100.0, 10, 60.0),
+        ("gentle up", 0, 100.0, 50, 101.0),
+        ("flat", 0, 100.0, 10, 100.0),
+        ("vertical-ish", 0, 100.0, 1, 500.0),
+    ]
+
+    worst = 0.0
+    for label, x1, y1, x2, y2 in cases:
+        n = _extend_bars(x1, y1, x2, y2, max_bars, limit_up, limit_dn)
+        slope = 0.0 if x2 == x1 else (y2 - y1) / (x2 - x1)
+        end_price = y2 + slope * n
+        check(
+            f"projection bounded ({label})",
+            n <= max_bars,
+            f"projected {n} bars, cap is {max_bars}",
+        )
+        # The endpoint may start outside the band (the pivot itself can be far
+        # from price); what matters is that projecting never pushes it further.
+        if abs(y2 - close_price) <= close_price * max_dev:
+            within = limit_dn - 1e-9 <= end_price <= limit_up + 1e-9
+            check(
+                f"endpoint stays inside the band ({label})",
+                within,
+                f"end price {end_price:.2f} outside [{limit_dn}, {limit_up}]",
+            )
+        worst = max(worst, abs(end_price))
+
+    check("no projection reaches an absurd price", worst < 1000.0, f"worst {worst}")
+
+
 def main() -> None:
     print("DeMark rule correctness tests\n")
     test_setup_completes_on_ninth_bar()
@@ -269,6 +329,7 @@ def main() -> None:
     test_countdown_needs_close_below_low_two_back()
     test_combo_is_stricter_than_classic()
     test_countdown_deferral()
+    test_trendline_projection_is_bounded()
 
     print(f"\n{PASSED} passed, {FAILED} failed")
     if FAILED:
