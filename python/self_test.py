@@ -109,6 +109,9 @@ def main() -> None:
     out = dm.td_setup_trend(df)
     check("td_setup_trend", out, n, ["tdst_support", "tdst_resistance"])
 
+    out = dm.td_risk_level(df)
+    check("td_risk_level", out, n, ["buy_risk_level", "sell_risk_level"])
+
     out = dm.td_points(df)
     check("td_points", out, n, ["td_point_high", "td_point_low"])
     print(f"      TD points: {int(out['td_point_high'].notna().sum())} highs, "
@@ -140,7 +143,7 @@ def main() -> None:
     print(f"      D-Wave: {int(labelled.notna().sum())} bars labelled, "
           f"pivots: {out['pivot_name'].dropna().tolist()}")
 
-    print("\nAll 20 indicators computed successfully.")
+    print("\nAll 21 indicators computed successfully.")
 
 
 if __name__ == "__main__":

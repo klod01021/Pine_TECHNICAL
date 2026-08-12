@@ -1,8 +1,14 @@
-"""Verify the three combined suites cover every DeMark indicator.
+"""Verify the v1/v2/v3 scripts cover every DeMark indicator.
 
-Each of the 20 indicators is mapped to the evidence that must appear in its
-suite: plot/plotshape titles for anything drawn as a series, and source
-patterns for tools drawn with line.new / label.new (TD Lines, TD D-Wave).
+The three scripts are grouped by workflow rather than by indicator family:
+
+    v1 Signals         what to trade      (setup, countdown, combo, TDST, risk)
+    v2 Trend & Targets where it goes      (lines, MAs, retracements, D-Wave)
+    v3 Momentum        does it confirm    (the eight oscillators)
+
+Each indicator is mapped to the evidence that must appear in its script:
+plot/plotshape titles for anything drawn as a series, and source patterns for
+tools drawn with line.new / label.new.
 
 Run:
 
@@ -58,6 +64,7 @@ def plot_titles(source: str) -> set[str]:
 Coverage = dict[str, tuple[list[str], list[str]]]
 
 OSCILLATORS: Coverage = {
+    "Preset selector": ([], [r"preset\s*=\s*input\.string", r"isCustom"]),
     "DeMarker": (["DeMarker"], []),
     "DeMarker II": (["DeMarker II"], []),
     "TD Pressure Ratio": (["TD Pressure Ratio"], []),
@@ -79,10 +86,16 @@ SEQUENTIAL: Coverage = {
         [],
     ),
     "TDST (countdown guard)": (["TDST Resistance", "TDST Support"], []),
+    "TD Risk Level": (
+        ["Buy risk level", "Sell risk level"],
+        [r"buyLowestTrueLow", r"sellHighestTrueHigh"],
+    ),
+    "Preset selector": ([], [r"preset\s*=\s*input\.string", r"isCustom"]),
 }
 
 LEVELS: Coverage = {
-    "TDST": (["TDST Resistance", "TDST Support"], [r"setupHighest", r"setupLowest"]),
+    "Preset selector": ([], [r"preset\s*=\s*input\.string", r"isCustom"]),
+    "TDST": ([], []),  # lives in v1, where the countdown needs it
     "TD Points": (["TD Point high", "TD Point low"], [r"ta\.pivothigh", r"ta\.pivotlow"]),
     "TD Lines": ([], [r"demandLine\b", r"supplyLine\b", r"demandLine2", r"supplyLine2"]),
     "DeMark Trendline": (["Demand projection", "Supply projection"], [r"line\.get_price"]),
@@ -99,9 +112,9 @@ LEVELS: Coverage = {
 }
 
 SUITES = [
-    ("all_oscillators.pine", "Oscillators", OSCILLATORS),
-    ("all_sequential.pine", "Sequential", SEQUENTIAL),
-    ("all_levels_trend.pine", "Levels & Trend", LEVELS),
+    ("demark_v1_signals.pine", "v1 — Signals", SEQUENTIAL),
+    ("demark_v2_trend_targets.pine", "v2 — Trend & Targets", LEVELS),
+    ("demark_v3_momentum.pine", "v3 — Momentum", OSCILLATORS),
 ]
 
 missing_total = 0

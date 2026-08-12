@@ -10,7 +10,7 @@ A complete library of Tom DeMark's technical indicators, implemented twice:
 Every indicator is calculated the same way in both languages so the values
 line up bar-for-bar given the same OHLC data.
 
-## Indicator catalogue (20)
+## Indicator catalogue (21)
 
 ### Oscillators
 
@@ -39,6 +39,7 @@ line up bar-for-bar given the same OHLC data.
 | # | Indicator | Python | Pine script |
 |---|---|---|---|
 | 13 | TDST (TD Setup Trend) | `td_setup_trend()` | `td_setup_trend_tdst.pine` |
+| 13b | TD Risk Level (stop for a 13) | `td_risk_level()` | `demark_v1_signals.pine` |
 | 14 | TD Points | `td_points()` | `td_points.pine` |
 | 15 | TD Lines (Supply/Demand 1–3) | `td_lines()` | `td_lines.pine` |
 | 16 | TD Moving Average I / II | `td_moving_average()` | `td_moving_average.pine` |
@@ -52,39 +53,59 @@ line up bar-for-bar given the same OHLC data.
 |---|---|---|---|
 | 20 | TD D-Wave | `td_d_wave()` | `td_d_wave.pine` |
 
-## Combined suite scripts (easiest way to start)
+## Start here: v1, v2, v3
 
-For ease of use, three scripts bundle the indicators by family — add one
-script instead of many, then toggle the tools you want from its settings.
+Three scripts, grouped by **what you use together** rather than by indicator
+family. Each answers one question in the trading workflow.
 
-| Suite script | Bundles |
-|---|---|
-| `pine/all_oscillators.pine` | All 8 oscillators — DeMarker, DeMarker II, Pressure Ratio, TD REI (with its ±45 bands and duration test), POQ, Alignment (with signal line), ROC (with signal line), TD Oscillator. Each toggleable; unbounded ones rescaled onto one 0–100 pane, with crossings evaluated on the raw series. |
-| `pine/all_sequential.pine` | TD Setup (with perfection), Countdown (with the 13-vs-8 deferral and both cancellation rules), TD Combo, Sequential/Combo confluence, and the TDST guard levels. |
-| `pine/all_levels_trend.pine` | TDST, TD Points, TD Lines (levels 1–3), TD MA I/II (with confirmation colouring and crosses), TD Range Projection, TD Retracements (with qualifier shading), DeMark Trendline and TD D-Wave. |
+| Script | Question it answers | Contains |
+|---|---|---|
+| **`pine/demark_v1_signals.pine`**<br>DeMark v1 — Signals | *Is a reversal due, and where am I wrong?* | TD Setup (+ perfection), TD Countdown (+ 13-vs-8 deferral, cancellations), TD Combo, Sequential/Combo confluence, **TDST** invalidation levels, **TD Risk Level** stop |
+| **`pine/demark_v2_trend_targets.pine`**<br>DeMark v2 — Trend & Targets | *Where is price going, and where do I exit?* | TD Lines (1–3), DeMark Trendline, TD Points, TD Moving Average I/II, TD Retracements, TD Range Projection, TD D-Wave |
+| **`pine/demark_v3_momentum.pine`**<br>DeMark v3 — Momentum | *Does momentum confirm or diverge?* | All 8 oscillators: DeMarker, DeMarker II, Pressure Ratio, TD REI, POQ, Alignment, ROC, TD Oscillator |
 
-Between them the three suites cover all 20 indicators, so you never need to
-add more than these three scripts to a chart. This is enforced by
-`tools/check_suite_coverage.py`, which fails if any indicator's plots or
-logic go missing from its suite.
+v1 and v2 sit on the candles; v3 opens in its own pane. Together they cover
+all 21 indicators, enforced by `tools/check_suite_coverage.py`.
+
+### Why this grouping
+
+The signal and its invalidation belong together: a TD Countdown is *cancelled*
+by a TDST violation, and a completed 13 is meaningless without the risk level
+that says where it failed. Splitting those across scripts meant you could not
+act on a signal from one script alone. v2 holds the tools that answer what
+happens next, and v3 is momentum, which belongs in a separate pane.
+
+### Presets
+
+Each script opens with a **Preset** dropdown so it is usable immediately:
+
+- **Essential** — the core signal only
+- **Standard** — the default; adds the levels most people want
+- **Everything** — every tool in that script
+- **Custom** — the individual checkboxes take over
+
+A typical setup is v1 on Standard, v2 on Essential or Standard, and v3 on
+Standard, then reaching for Custom once you know what you want.
 
 ## Keeping the chart readable
 
-Two settings matter most if the chart starts to look crowded or the candles
-get squashed:
+Start with the **Preset** dropdown rather than the individual checkboxes.
+Beyond that, two settings matter most if the chart looks crowded or the
+candles get squashed:
 
 - **Project lines forward (bars)** and **Stop projecting past this % from
-  price** (Levels suite, "Display" group). Trendlines are *not* extended to
-  infinity — a steep line taken to the right edge forces TradingView's
-  auto-scale to include huge prices and compresses the candles into a thin
-  band. The projection is capped at a number of bars and stops early if the
-  line would travel further than the given percentage from current price.
+  price** (v2, "Display" group). Trendlines are *not* extended to infinity —
+  a steep line taken to the right edge forces TradingView's auto-scale to
+  include huge prices and compresses the candles into a thin band. The
+  projection is capped at a number of bars and stops early if the line would
+  travel further than the given percentage from current price.
 - **TD Point left/right bars.** DeMark's strict TD Point is 1 bar either
   side, which on an intraday chart marks nearly every bar. The default is 3;
   set both to 1 for the textbook definition.
 
-The Levels suite ships with only TDST, TD Lines and the moving averages
-enabled. Switch the rest on one at a time rather than all at once.
+If you previously added one of these scripts to a chart, remove and re-add it
+after updating — TradingView keeps your old input values, so you would not
+pick up the new defaults.
 
 ## Use in TradingView
 
@@ -100,7 +121,7 @@ enabled. Switch the rest on one at a time rather than all at once.
 ```bash
 cd python
 pip install -r requirements.txt
-python3 self_test.py          # validates all 20 indicators
+python3 self_test.py          # validates all 21 indicators
 python3 demo.py AAPL.csv      # run over your own TradingView CSV export
 ```
 
@@ -120,7 +141,7 @@ See [`python/README.md`](python/README.md) for the full API.
 python3 tools/lint_pine.py             # static check of all 22 Pine v6 scripts
 python3 tools/check_suite_coverage.py  # every indicator present in its suite
 python3 python/test_correctness.py     # 22 hand-verified DeMark rule tests
-cd python && python3 self_test.py      # all 20 indicators over synthetic data
+cd python && python3 self_test.py      # all 21 indicators over synthetic data
 ```
 
 `tools/lint_pine.py` catches reserved words used as identifiers, wrong

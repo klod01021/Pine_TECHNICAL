@@ -78,6 +78,7 @@ textbook count instead.
 | Function | Indicator | Key outputs |
 |---|---|---|
 | `td_setup_trend` | TDST support/resistance | `tdst_support`, `tdst_resistance` |
+| `td_risk_level` | Stop level for a completed 13 | `buy_risk_level`, `sell_risk_level` |
 | `td_points` | TD Point highs/lows | `td_point_high`, `td_point_low` |
 | `td_lines` | TD Supply/Demand lines 1–3 | `demand_1..3`, `supply_1..3` |
 | `td_retracements` | TD Relative Retracement | `up_0_382`, `down_0_618`, ... |

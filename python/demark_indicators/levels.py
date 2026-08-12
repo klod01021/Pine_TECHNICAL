@@ -7,7 +7,89 @@ import numpy as np
 import pandas as pd
 
 from .data import validate_ohlc
-from .sequential import td_setup
+from .sequential import td_setup, td_countdown
+
+
+# ---------------------------------------------------------------------------
+# TD Risk Level
+# ---------------------------------------------------------------------------
+
+def td_risk_level(
+    df: pd.DataFrame,
+    setup_length: int = 9,
+    countdown_length: int = 13,
+    compare: int = 4,
+) -> pd.DataFrame:
+    """TD Risk Level — DeMark's stop placement for a completed countdown.
+
+    On a completed buy 13, find the lowest *true low* of the countdown phase,
+    then subtract that bar's true range from it. The result is the level at
+    which the exhaustion signal is considered wrong. A sell 13 mirrors this:
+    the highest true high plus that bar's true range.
+
+    True low is ``min(low, previous close)`` and true high
+    ``max(high, previous close)``, so gaps are included.
+
+    Output: ``buy_risk_level`` / ``sell_risk_level`` (set on the 13 bar and
+    carried forward until the next signal), plus ``buy_risk_broken`` /
+    ``sell_risk_broken`` when price closes through the level.
+    """
+    validate_ohlc(df)
+    high = df["high"].to_numpy(dtype=float)
+    low = df["low"].to_numpy(dtype=float)
+    close = df["close"].to_numpy(dtype=float)
+    n = len(close)
+
+    cd = td_countdown(df, setup_length, countdown_length, compare)
+    buy_cd = cd["buy_countdown"].to_numpy()
+    sell_cd = cd["sell_countdown"].to_numpy()
+    buy_sig = cd["buy_signal"].to_numpy()
+    sell_sig = cd["sell_signal"].to_numpy()
+
+    prev_close = np.concatenate([[close[0]], close[:-1]])
+    true_low = np.minimum(low, prev_close)
+    true_high = np.maximum(high, prev_close)
+    true_range = true_high - true_low
+
+    buy_level = np.full(n, np.nan)
+    sell_level = np.full(n, np.nan)
+    buy_broken = np.zeros(n, dtype=bool)
+    sell_broken = np.zeros(n, dtype=bool)
+
+    cur_buy = np.nan
+    cur_sell = np.nan
+
+    for i in range(n):
+        if buy_sig[i]:
+            starts = np.where(buy_cd[: i + 1] == 1)[0]
+            start = starts[-1] if len(starts) else max(0, i - countdown_length)
+            span = slice(start, i + 1)
+            j = start + int(np.argmin(true_low[span]))
+            cur_buy = true_low[j] - true_range[j]
+        if sell_sig[i]:
+            starts = np.where(sell_cd[: i + 1] == 1)[0]
+            start = starts[-1] if len(starts) else max(0, i - countdown_length)
+            span = slice(start, i + 1)
+            j = start + int(np.argmax(true_high[span]))
+            cur_sell = true_high[j] + true_range[j]
+
+        if not np.isnan(cur_buy) and close[i] < cur_buy:
+            buy_broken[i] = True
+        if not np.isnan(cur_sell) and close[i] > cur_sell:
+            sell_broken[i] = True
+
+        buy_level[i] = cur_buy
+        sell_level[i] = cur_sell
+
+    return pd.DataFrame(
+        {
+            "buy_risk_level": buy_level,
+            "sell_risk_level": sell_level,
+            "buy_risk_broken": buy_broken,
+            "sell_risk_broken": sell_broken,
+        },
+        index=df.index,
+    )
 
 
 # ---------------------------------------------------------------------------

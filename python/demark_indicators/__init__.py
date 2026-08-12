@@ -30,6 +30,7 @@ TD Sequential family
 
 Levels and trend
     - td_setup_trend              TDST support / resistance levels
+    - td_risk_level               Stop level for a completed countdown
     - td_points                   Qualified TD Point highs and lows
     - td_lines                    TD Supply / Demand lines (levels 1-3)
     - td_moving_average           TD Moving Average I and II
@@ -66,6 +67,7 @@ from .levels import (
     td_lines,
     td_retracements,
     demark_trendline,
+    td_risk_level,
 )
 from .moving_averages import td_moving_average
 from .range_projection import td_range_projection
@@ -92,6 +94,7 @@ __all__ = [
     "td_lines",
     "td_retracements",
     "demark_trendline",
+    "td_risk_level",
     "td_moving_average",
     "td_range_projection",
     "td_d_wave",

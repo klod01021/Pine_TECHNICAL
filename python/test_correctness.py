@@ -274,6 +274,51 @@ def _extend_bars(x1, y1, x2, y2, max_bars, limit_up, limit_dn) -> int:
     return int(max(0.0, np.floor(allowed)))
 
 
+def test_risk_level_sits_beyond_the_extreme() -> None:
+    """A buy risk level must sit below the lowest true low of the countdown."""
+    rng = np.random.default_rng(21)
+    n = 900
+    close = 100 - np.linspace(0, 70, n) + rng.normal(0, 1.2, n)
+    high = close + rng.uniform(0.2, 1.2, n)
+    low = close - rng.uniform(0.2, 1.2, n)
+    df = pd.DataFrame({"open": close, "high": high, "low": low, "close": close})
+
+    cd = dm.td_countdown(df)
+    risk = dm.td_risk_level(df)
+
+    signals = np.where(cd["buy_signal"].to_numpy())[0]
+    if len(signals) == 0:
+        check("risk level test produced a buy 13 to check", False, "no signals")
+        return
+
+    ok = True
+    detail = ""
+    for i in signals:
+        level = risk["buy_risk_level"].iloc[i]
+        cd_col = cd["buy_countdown"].to_numpy()
+        starts = np.where(cd_col[: i + 1] == 1)[0]
+        start = starts[-1] if len(starts) else 0
+        lowest = df["low"].to_numpy()[start : i + 1].min()
+        if not (level < lowest):
+            ok = False
+            detail = f"level {level:.2f} not below countdown low {lowest:.2f}"
+            break
+    check(f"buy risk level sits below the countdown low ({len(signals)} signals)", ok, detail)
+
+    sell_signals = np.where(cd["sell_signal"].to_numpy())[0]
+    ok2 = True
+    for i in sell_signals:
+        level = risk["sell_risk_level"].iloc[i]
+        cd_col = cd["sell_countdown"].to_numpy()
+        starts = np.where(cd_col[: i + 1] == 1)[0]
+        start = starts[-1] if len(starts) else 0
+        highest = df["high"].to_numpy()[start : i + 1].max()
+        if not (level > highest):
+            ok2 = False
+            break
+    check("sell risk level sits above the countdown high", ok2)
+
+
 def test_trendline_projection_is_bounded() -> None:
     """A steep trendline must not project off to an absurd price.
 
@@ -329,6 +374,7 @@ def main() -> None:
     test_countdown_needs_close_below_low_two_back()
     test_combo_is_stricter_than_classic()
     test_countdown_deferral()
+    test_risk_level_sits_beyond_the_extreme()
     test_trendline_projection_is_bounded()
 
     print(f"\n{PASSED} passed, {FAILED} failed")
