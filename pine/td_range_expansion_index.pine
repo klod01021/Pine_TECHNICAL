@@ -5,7 +5,7 @@
 // of two qualifying filters holds; otherwise it adds nothing to either the
 // numerator or the denominator.
 //@version=6
-indicator("TD Range Expansion Index", shorttitle="TD REI", overlay=false, timeframe="", timeframe_gaps=true)
+indicator("TD Range Expansion Index", shorttitle="TD REI", overlay=false)
 
 length = input.int(5, "REI length", minval=1)
 overbought = input.float(45.0, "Overbought")

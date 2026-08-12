@@ -1,7 +1,7 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // TD Oscillator — generalized DeMark momentum spread
 //@version=6
-indicator("TD Oscillator", shorttitle="TD Osc", overlay=false, timeframe="", timeframe_gaps=true)
+indicator("TD Oscillator", shorttitle="TD Osc", overlay=false)
 
 shortLen = input.int(3, "Short SMA", minval=1)
 longLen = input.int(9, "Long SMA", minval=1)

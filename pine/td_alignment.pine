@@ -1,7 +1,7 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // TD Alignment Oscillator — Tom DeMark
 //@version=6
-indicator("TD Alignment", shorttitle="TD Align", overlay=false, timeframe="", timeframe_gaps=true)
+indicator("TD Alignment", shorttitle="TD Align", overlay=false)
 
 fast = input.int(5, "Fast SMA", minval=1)
 slow = input.int(13, "Slow SMA", minval=1)

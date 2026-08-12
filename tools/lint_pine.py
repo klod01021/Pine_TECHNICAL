@@ -142,6 +142,24 @@ def check_file(path: pathlib.Path) -> None:
     if len(decls) != 1:
         errors.append(f"{name}: expected exactly 1 indicator() declaration, found {len(decls)}")
 
+    # --- timeframe vs side effects (Pine CE10080) --------------------------
+    # A script that creates drawings or alerts cannot declare a `timeframe`
+    # argument, because those side effects cannot be evaluated in another
+    # context. `timeframe=""` is the default, so it is pure downside here.
+    body = "\n".join(strip_comment(l) for l in raw)
+    if decls and re.search(r"\btimeframe(_gaps)?\s*=", decls[0]):
+        side_effects = re.findall(
+            r"\b(line\.new|label\.new|box\.new|table\.new|polyline\.new|"
+            r"linefill\.new|alertcondition|alert)\s*\(",
+            body,
+        )
+        if side_effects:
+            unique = sorted(set(side_effects))
+            errors.append(
+                f"{name}: indicator() declares a 'timeframe' argument but the script "
+                f"creates side effects ({', '.join(unique)}) — Pine error CE10080"
+            )
+
     # Collect user-function parameter names so we can spot them being passed
     # as a ta.* length argument.
     func_params: set[str] = set()

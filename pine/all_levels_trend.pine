@@ -3,7 +3,9 @@
 // TD Range Projection, TD Retracements and the DeMark Trendline on one chart.
 // Each tool can be toggled independently.
 //@version=6
-indicator("DeMark Levels & Trend Suite", shorttitle="DeM Levels", overlay=true, timeframe="", timeframe_gaps=true, max_lines_count=500, max_labels_count=500)
+// Note: no `timeframe` argument. Scripts that create drawings or alerts cannot
+// declare one (Pine error CE10080), and `timeframe=""` is the default anyway.
+indicator("DeMark Levels & Trend Suite", shorttitle="DeM Levels", overlay=true, max_lines_count=500, max_labels_count=500)
 
 // ---------------------------------------------------------------------------
 // Inputs

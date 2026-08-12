@@ -1,7 +1,7 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // DeMark Trendline — qualified TD Point trendlines with projections
 //@version=6
-indicator("DeMark Trendline", shorttitle="DeMark TL", overlay=true, timeframe="", timeframe_gaps=true, max_lines_count=500)
+indicator("DeMark Trendline", shorttitle="DeMark TL", overlay=true, max_lines_count=500)
 
 left = input.int(1, "TD Point Left Bars", minval=1)
 right = input.int(1, "TD Point Right Bars", minval=1)

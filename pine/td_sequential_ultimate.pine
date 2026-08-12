@@ -3,7 +3,7 @@
 // switched on, run alongside the Combo count so the two can be compared.
 // Bars where both complete a 13 are flagged as confluence.
 //@version=6
-indicator("TD Sequential Ultimate", shorttitle="TD Seq Ult", overlay=true, timeframe="", timeframe_gaps=true, max_labels_count=500)
+indicator("TD Sequential Ultimate", shorttitle="TD Seq Ult", overlay=true, max_labels_count=500)
 
 setupLen = input.int(9, "Setup length", minval=1, group="Setup")
 cmp = input.int(4, "Comparison bars", minval=1, group="Setup")

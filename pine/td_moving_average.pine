@@ -1,7 +1,7 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // TD Moving Average I & II — Tom DeMark
 //@version=6
-indicator("TD Moving Average I/II", shorttitle="TD MA", overlay=true, timeframe="", timeframe_gaps=true)
+indicator("TD Moving Average I/II", shorttitle="TD MA", overlay=true)
 
 fastLen = input.int(5, "TD MA I Length", minval=1)
 slowLen = input.int(13, "TD MA II Length", minval=1)

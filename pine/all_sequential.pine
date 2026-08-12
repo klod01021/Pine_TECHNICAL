@@ -2,7 +2,9 @@
 // DeMark Sequential Suite — TD Setup (with perfection), TD Countdown (with the
 // 13-vs-8 deferral and cancellation rules) and TD Combo on one chart.
 //@version=6
-indicator("DeMark Sequential Suite", shorttitle="DeM Sequential", overlay=true, timeframe="", timeframe_gaps=true, max_labels_count=500)
+// Note: no `timeframe` argument. Scripts that create drawings or alerts cannot
+// declare one (Pine error CE10080), and `timeframe=""` is the default anyway.
+indicator("DeMark Sequential Suite", shorttitle="DeM Sequential", overlay=true, max_labels_count=500)
 
 setupLen = input.int(9, "Setup length", minval=1, group="Setup")
 cmp = input.int(4, "Comparison bars", minval=1, group="Setup")

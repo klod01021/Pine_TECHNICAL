@@ -1,7 +1,7 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // TD Range Projection — next-bar projected high/low
 //@version=6
-indicator("TD Range Projection", shorttitle="TD Range Proj", overlay=true, timeframe="", timeframe_gaps=true)
+indicator("TD Range Projection", shorttitle="TD Range Proj", overlay=true)
 
 upBar = close >= open
 

@@ -6,7 +6,9 @@
 // same 0-100 band for shape comparison. The "focus" dropdown picks which one
 // drives the overbought / oversold shading.
 //@version=6
-indicator("DeMark Oscillator Suite", shorttitle="DeM Oscillators", overlay=false, timeframe="", timeframe_gaps=true)
+// Note: no `timeframe` argument. Scripts that create drawings or alerts cannot
+// declare one (Pine error CE10080), and `timeframe=""` is the default anyway.
+indicator("DeMark Oscillator Suite", shorttitle="DeM Oscillators", overlay=false)
 
 // ---------------------------------------------------------------------------
 // Inputs

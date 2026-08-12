@@ -1,7 +1,7 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // TD Rate of Change — Tom DeMark
 //@version=6
-indicator("TD Rate of Change", shorttitle="TD ROC", overlay=false, timeframe="", timeframe_gaps=true)
+indicator("TD Rate of Change", shorttitle="TD ROC", overlay=false)
 
 length = input.int(5, "ROC Length", minval=1)
 signalLen = input.int(8, "Signal EMA", minval=1)

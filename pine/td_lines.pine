@@ -1,7 +1,7 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // TD Lines — Supply/Demand lines from TD Points (levels 1-3)
 //@version=6
-indicator("TD Lines (Supply/Demand)", shorttitle="TD Lines", overlay=true, timeframe="", timeframe_gaps=true, max_lines_count=500)
+indicator("TD Lines (Supply/Demand)", shorttitle="TD Lines", overlay=true, max_lines_count=500)
 
 left = input.int(1, "TD Point Left Bars", minval=1)
 right = input.int(1, "TD Point Right Bars", minval=1)

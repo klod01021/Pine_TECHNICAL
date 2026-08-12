@@ -1,7 +1,7 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // TD D-Wave — DeMark's mechanical Elliott-style wave counter
 //@version=6
-indicator("TD D-Wave", shorttitle="TD D-Wave", overlay=true, timeframe="", timeframe_gaps=true, max_labels_count=500, max_lines_count=500)
+indicator("TD D-Wave", shorttitle="TD D-Wave", overlay=true, max_labels_count=500, max_lines_count=500)
 
 left = input.int(5, "TD Point Left Bars", minval=1)
 right = input.int(5, "TD Point Right Bars", minval=1)

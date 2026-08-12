@@ -1,7 +1,7 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // TD Retracements (Relative Retracement / Arc magnets) — Tom DeMark
 //@version=6
-indicator("TD Retracements", shorttitle="TD Retr", overlay=true, timeframe="", timeframe_gaps=true)
+indicator("TD Retracements", shorttitle="TD Retr", overlay=true)
 
 lookback = input.int(100, "Swing Lookback", minval=2)
 showQualifier = input.bool(true, "Show Qualifier Background")

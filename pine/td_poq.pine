@@ -1,7 +1,7 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // TD POQ (Price Oscillator Qualifier) — Tom DeMark
 //@version=6
-indicator("TD POQ", shorttitle="TD POQ", overlay=false, timeframe="", timeframe_gaps=true)
+indicator("TD POQ", shorttitle="TD POQ", overlay=false)
 
 fast = input.int(3, "Fast EMA", minval=1)
 slow = input.int(8, "Slow EMA", minval=1)

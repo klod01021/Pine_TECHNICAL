@@ -2,7 +2,7 @@
 // TD Sequential — Setup 1-9 plus Countdown 1-13, with DeMark's 13-vs-8
 // deferral rule and the standard countdown cancellations.
 //@version=6
-indicator("TD Sequential", shorttitle="TD Seq", overlay=true, timeframe="", timeframe_gaps=true, max_labels_count=500)
+indicator("TD Sequential", shorttitle="TD Seq", overlay=true, max_labels_count=500)
 
 setupLen = input.int(9, "Setup length", minval=1, group="Setup")
 cmp = input.int(4, "Comparison bars", minval=1, group="Setup")

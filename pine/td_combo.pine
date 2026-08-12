@@ -6,7 +6,7 @@
 // below the previous counted combo close. Above that count only the last
 // condition applies. Sell combo bars mirror this with highs.
 //@version=6
-indicator("TD Combo", shorttitle="TD Combo", overlay=true, timeframe="", timeframe_gaps=true, max_labels_count=500)
+indicator("TD Combo", shorttitle="TD Combo", overlay=true, max_labels_count=500)
 
 setupLen = input.int(9, "Setup length", minval=1, group="Setup")
 cmp = input.int(4, "Comparison bars", minval=1, group="Setup")

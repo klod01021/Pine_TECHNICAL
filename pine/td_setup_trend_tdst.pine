@@ -6,7 +6,7 @@
 // invalidates the bullish reversal thesis. A completed SELL setup defines TDST
 // SUPPORT at the lowest low of its nine bars.
 //@version=6
-indicator("TD Setup Trend (TDST)", shorttitle="TDST", overlay=true, timeframe="", timeframe_gaps=true)
+indicator("TD Setup Trend (TDST)", shorttitle="TDST", overlay=true)
 
 setupLen = input.int(9, "Setup length", minval=1)
 cmp = input.int(4, "Comparison bars", minval=1)
