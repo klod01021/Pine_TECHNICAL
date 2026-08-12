@@ -12,19 +12,25 @@ showTdst = input.bool(true, "TDST levels", group="TDST")
 setupLen = input.int(9, "Setup length", minval=1, group="TDST")
 cmp = input.int(4, "Comparison bars", minval=1, group="TDST")
 
+showPoints = input.bool(true, "TD Point markers", group="TD Points")
+leftBars = input.int(1, "TD Point left bars", minval=1, group="TD Points")
+rightBars = input.int(1, "TD Point right bars", minval=1, group="TD Points")
+
 showTdLines = input.bool(true, "TD Supply/Demand lines", group="TD Lines")
-leftBars = input.int(1, "TD Point left bars", minval=1, group="TD Lines")
-rightBars = input.int(1, "TD Point right bars", minval=1, group="TD Lines")
+lineLevels = input.int(1, "Line levels to draw (1-3)", minval=1, maxval=3, group="TD Lines")
 showProjection = input.bool(true, "One-bar-ahead projections", group="TD Lines")
 
 showMa = input.bool(true, "TD MA I/II", group="TD Moving Average")
 fastLen = input.int(5, "TD MA I length", minval=1, group="TD Moving Average")
 slowLen = input.int(13, "TD MA II length", minval=1, group="TD Moving Average")
+maConfirmBars = input.int(1, "Confirmation bars", minval=1, group="TD Moving Average")
+showMaSignals = input.bool(true, "Confirmation bar colouring and crosses", group="TD Moving Average")
 
 showRangeProj = input.bool(false, "Projected high/low", group="TD Range Projection")
 
 showRetr = input.bool(false, "Retracement magnets", group="TD Retracements")
 lookback = input.int(100, "Swing lookback", minval=2, group="TD Retracements")
+showRetrQualifier = input.bool(true, "Qualifier shading", group="TD Retracements")
 
 showWave = input.bool(false, "TD D-Wave count", group="TD D-Wave")
 waveLeft = input.int(5, "Wave pivot left bars", minval=1, group="TD D-Wave")
@@ -103,18 +109,44 @@ if not na(pl)
         loPrice.shift()
         loBar.shift()
 
+// TD Point markers (the pivots the lines are built from).
+plotshape(showPoints and not na(ph), "TD Point high", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 20), offset=-rightBars, size=size.tiny)
+plotshape(showPoints and not na(pl), "TD Point low", style=shape.triangleup, location=location.belowbar, color=color.new(color.green, 20), offset=-rightBars, size=size.tiny)
+
+// Level 1 uses the two most recent points; level 2 the pair before that, and
+// so on, which is how a broken TD Line hands off to the next one.
 var line demandLine = na
 var line supplyLine = na
+var line demandLine2 = na
+var line supplyLine2 = na
+var line demandLine3 = na
+var line supplyLine3 = na
 
 if showTdLines and loPrice.size() >= 2
     line.delete(demandLine)
     int nLo = loPrice.size()
     demandLine := line.new(loBar.get(nLo - 2), loPrice.get(nLo - 2), loBar.get(nLo - 1), loPrice.get(nLo - 1), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.green, 0), width=2)
+if showTdLines and lineLevels >= 2 and loPrice.size() >= 3
+    line.delete(demandLine2)
+    int nLo2 = loPrice.size()
+    demandLine2 := line.new(loBar.get(nLo2 - 3), loPrice.get(nLo2 - 3), loBar.get(nLo2 - 2), loPrice.get(nLo2 - 2), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.green, 45), width=1)
+if showTdLines and lineLevels >= 3 and loPrice.size() >= 4
+    line.delete(demandLine3)
+    int nLo3 = loPrice.size()
+    demandLine3 := line.new(loBar.get(nLo3 - 4), loPrice.get(nLo3 - 4), loBar.get(nLo3 - 3), loPrice.get(nLo3 - 3), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.green, 70), width=1)
 
 if showTdLines and hiPrice.size() >= 2
     line.delete(supplyLine)
     int nHi = hiPrice.size()
     supplyLine := line.new(hiBar.get(nHi - 2), hiPrice.get(nHi - 2), hiBar.get(nHi - 1), hiPrice.get(nHi - 1), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.red, 0), width=2)
+if showTdLines and lineLevels >= 2 and hiPrice.size() >= 3
+    line.delete(supplyLine2)
+    int nHi2 = hiPrice.size()
+    supplyLine2 := line.new(hiBar.get(nHi2 - 3), hiPrice.get(nHi2 - 3), hiBar.get(nHi2 - 2), hiPrice.get(nHi2 - 2), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.red, 45), width=1)
+if showTdLines and lineLevels >= 3 and hiPrice.size() >= 4
+    line.delete(supplyLine3)
+    int nHi3 = hiPrice.size()
+    supplyLine3 := line.new(hiBar.get(nHi3 - 4), hiPrice.get(nHi3 - 4), hiBar.get(nHi3 - 3), hiPrice.get(nHi3 - 3), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.red, 70), width=1)
 
 // Read the line values through explicit guards; line.get_price on an
 // undefined line id is a runtime error.
@@ -146,6 +178,16 @@ ma2 = ta.sma(close, slowLen)
 plot(showMa ? ma1 : na, "TD MA I", color=color.new(color.blue, 0), linewidth=2)
 plot(showMa ? ma2 : na, "TD MA II", color=color.new(color.orange, 0), linewidth=2)
 
+// Confirmation rule: `maConfirmBars` consecutive closes on one side of TD MA I,
+// read against the TD MA I/II trend regime.
+maBullish = math.sum(close > ma1 ? 1 : 0, maConfirmBars) >= maConfirmBars
+maBearish = math.sum(close < ma1 ? 1 : 0, maConfirmBars) >= maConfirmBars
+maTrendUp = ma1 > ma2
+
+barcolor(showMa and showMaSignals and not maTrendUp and maBullish ? color.new(color.lime, 40) : showMa and showMaSignals and maTrendUp and maBearish ? color.new(color.red, 40) : na)
+plotshape(showMa and showMaSignals and ta.crossover(ma1, ma2), "TD MA bullish cross", style=shape.triangleup, location=location.belowbar, color=color.new(color.green, 0), size=size.tiny)
+plotshape(showMa and showMaSignals and ta.crossunder(ma1, ma2), "TD MA bearish cross", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.tiny)
+
 // ---------------------------------------------------------------------------
 // TD Range Projection
 // ---------------------------------------------------------------------------
@@ -167,6 +209,13 @@ plot(showRetr ? swingLow + swingRange * 0.382 : na, "Up 38.2%", color=color.new(
 plot(showRetr ? swingLow + swingRange * 0.618 : na, "Up 61.8%", color=color.new(color.teal, 0), style=plot.style_linebr)
 plot(showRetr ? swingHigh - swingRange * 0.382 : na, "Down 38.2%", color=color.new(color.orange, 40), style=plot.style_linebr)
 plot(showRetr ? swingHigh - swingRange * 0.618 : na, "Down 61.8%", color=color.new(color.orange, 0), style=plot.style_linebr)
+
+// Qualifier: the close sits in the extreme third of the bar's range, which is
+// DeMark's momentum condition for a retracement level to hold.
+barRange = high - low
+retrQualifiedUp = barRange > 0 and close >= low + barRange * (2.0 / 3.0)
+retrQualifiedDown = barRange > 0 and close <= low + barRange * (1.0 / 3.0)
+bgcolor(showRetr and showRetrQualifier and retrQualifiedUp ? color.new(color.green, 92) : showRetr and showRetrQualifier and retrQualifiedDown ? color.new(color.red, 92) : na)
 
 // ---------------------------------------------------------------------------
 // TD D-Wave — DeMark's mechanical Elliott-style count over its own pivot set,

@@ -30,8 +30,10 @@ poqSlow = input.int(8, "slow", minval=1, inline="o5", group="Oscillators")
 showAlign = input.bool(false, "TD Alignment", inline="o6", group="Oscillators")
 alFast = input.int(5, "fast", minval=1, inline="o6", group="Oscillators")
 alSlow = input.int(13, "slow", minval=1, inline="o6", group="Oscillators")
+alSignalLen = input.int(8, "signal", minval=1, inline="o6", group="Oscillators")
 showRoc = input.bool(false, "TD ROC", inline="o7", group="Oscillators")
 rocLen = input.int(5, "len", minval=1, inline="o7", group="Oscillators")
+rocSignalLen = input.int(8, "signal", minval=1, inline="o7", group="Oscillators")
 showOsc = input.bool(false, "TD Oscillator", inline="o8", group="Oscillators")
 oscFast = input.int(3, "fast", minval=1, inline="o8", group="Oscillators")
 oscSlow = input.int(9, "slow", minval=1, inline="o8", group="Oscillators")
@@ -91,8 +93,10 @@ poq = poqSlowEma == 0.0 ? 0.0 : 100.0 * (poqFastEma - poqSlowEma) / poqSlowEma
 alFastMa = ta.sma(close, alFast)
 alSlowMa = ta.sma(close, alSlow)
 alignment = alSlowMa == 0.0 ? 0.0 : 100.0 * (alFastMa - alSlowMa) / alSlowMa
+alignSignal = ta.ema(alignment, alSignalLen)
 
 roc = close[rocLen] == 0.0 ? 0.0 : 100.0 * (close - close[rocLen]) / close[rocLen]
+rocSignal = ta.ema(roc, rocSignalLen)
 
 oscFastMa = ta.sma(close, oscFast)
 oscSlowMa = ta.sma(close, oscSlow)
@@ -116,10 +120,14 @@ poqN = (poqHi - poqLo) == 0.0 ? 50.0 : 100.0 * (poq - poqLo) / (poqHi - poqLo)
 alignLo = ta.lowest(alignment, scaleLookback)
 alignHi = ta.highest(alignment, scaleLookback)
 alignN = (alignHi - alignLo) == 0.0 ? 50.0 : 100.0 * (alignment - alignLo) / (alignHi - alignLo)
+// The signal line is scaled with the oscillator's own range so the crossings
+// stay in the same places after rescaling.
+alignSignalN = (alignHi - alignLo) == 0.0 ? 50.0 : 100.0 * (alignSignal - alignLo) / (alignHi - alignLo)
 
 rocLo = ta.lowest(roc, scaleLookback)
 rocHi = ta.highest(roc, scaleLookback)
 rocN = (rocHi - rocLo) == 0.0 ? 50.0 : 100.0 * (roc - rocLo) / (rocHi - rocLo)
+rocSignalN = (rocHi - rocLo) == 0.0 ? 50.0 : 100.0 * (rocSignal - rocLo) / (rocHi - rocLo)
 
 oscLo = ta.lowest(tdOsc, scaleLookback)
 oscHi = ta.highest(tdOsc, scaleLookback)
@@ -147,7 +155,9 @@ plot(showPr ? prRatio : na, "TD Pressure Ratio", color=color.new(color.purple, 0
 plot(showRei ? reiN : na, "TD REI (0-100 scaled)", color=color.new(color.teal, 0))
 plot(showPoq ? poqN : na, "TD POQ (scaled)", color=color.new(color.orange, 0))
 plot(showAlign ? alignN : na, "TD Alignment (scaled)", color=color.new(color.fuchsia, 0))
+plot(showAlign ? alignSignalN : na, "TD Alignment signal", color=color.new(color.fuchsia, 55), style=plot.style_line)
 plot(showRoc ? rocN : na, "TD ROC (scaled)", color=color.new(color.maroon, 0))
+plot(showRoc ? rocSignalN : na, "TD ROC signal", color=color.new(color.maroon, 55), style=plot.style_line)
 plot(showOsc ? oscN : na, "TD Oscillator (scaled)", color=color.new(color.gray, 0))
 
 // Raw focus value is display=none so it shows in the data window without
@@ -160,8 +170,34 @@ plot(osLevel, "Oversold", color=color.new(color.green, 50))
 
 bgcolor(focusIsBounded and focusRaw > obLevel ? color.new(color.red, 92) : focusIsBounded and focusRaw < osLevel ? color.new(color.green, 92) : na)
 
-// TD REI uses its own +/-45 thresholds rather than the 70/30 band.
-reiOverbought = showRei and rei > 45.0
-reiOversold = showRei and rei < -45.0
-alertcondition(reiOverbought, "TD REI Overbought", "TD REI above +45")
-alertcondition(reiOversold, "TD REI Oversold", "TD REI below -45")
+// ---------------------------------------------------------------------------
+// Signals — evaluated on the raw (unscaled) series so rescaling cannot move
+// a crossing.
+// ---------------------------------------------------------------------------
+alignBull = showAlign and ta.crossover(alignment, alignSignal)
+alignBear = showAlign and ta.crossunder(alignment, alignSignal)
+rocBull = showRoc and ta.crossover(roc, rocSignal)
+rocBear = showRoc and ta.crossunder(roc, rocSignal)
+oscBull = showOsc and ta.crossover(tdOsc, 0.0)
+oscBear = showOsc and ta.crossunder(tdOsc, 0.0)
+
+plotshape(alignBull or rocBull or oscBull, "Bullish cross", style=shape.triangleup, location=location.bottom, color=color.new(color.green, 0), size=size.tiny)
+plotshape(alignBear or rocBear or oscBear, "Bearish cross", style=shape.triangledown, location=location.top, color=color.new(color.red, 0), size=size.tiny)
+
+// TD REI uses its own +/-45 thresholds rather than the 70/30 band, plus
+// DeMark's duration test: a reading holding beyond `reiDurationBars` describes
+// a trending market rather than an exhausted one.
+reiDurationBars = input.int(6, "TD REI bars beyond threshold before 'severe'", minval=1, group="Display")
+var int reiBarsOver = 0
+var int reiBarsUnder = 0
+reiBarsOver := rei > 45.0 ? reiBarsOver + 1 : 0
+reiBarsUnder := rei < -45.0 ? reiBarsUnder + 1 : 0
+reiSevere = showRei and (reiBarsOver > reiDurationBars or reiBarsUnder > reiDurationBars)
+bgcolor(reiSevere ? color.new(color.orange, 88) : na)
+
+alertcondition(showRei and rei > 45.0, "TD REI Overbought", "TD REI above +45")
+alertcondition(showRei and rei < -45.0, "TD REI Oversold", "TD REI below -45")
+alertcondition(alignBull, "TD Alignment bullish", "TD Alignment crossed above its signal")
+alertcondition(alignBear, "TD Alignment bearish", "TD Alignment crossed below its signal")
+alertcondition(rocBull, "TD ROC bullish", "TD ROC crossed above its signal")
+alertcondition(rocBear, "TD ROC bearish", "TD ROC crossed below its signal")

@@ -186,6 +186,11 @@ if sellComboActive and bar_index >= 2
             sellCombo13 := true
             sellComboActive := false
 
+// Confluence: a Sequential 13 and a Combo 13 completing on the same bar is the
+// highest-conviction reading in the family.
+buyConfluence = buy13 and buyCombo13
+sellConfluence = sell13 and sellCombo13
+
 // ---------------------------------------------------------------------------
 // Plots
 // ---------------------------------------------------------------------------
@@ -194,11 +199,14 @@ plotshape(buyPerfected, "Buy 9 perfected", style=shape.labelup, location=locatio
 plotshape(sellComplete and not sellPerfected, "Sell 9", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0), text="9", textcolor=color.white, size=size.tiny)
 plotshape(sellPerfected, "Sell 9 perfected", style=shape.labeldown, location=location.abovebar, color=color.new(color.maroon, 0), text="9+", textcolor=color.white, size=size.tiny)
 
-plotshape(buy13, "Buy 13", style=shape.labelup, location=location.belowbar, color=color.new(color.lime, 0), text="13", textcolor=color.black, size=size.small)
-plotshape(sell13, "Sell 13", style=shape.labeldown, location=location.abovebar, color=color.new(color.maroon, 0), text="13", textcolor=color.white, size=size.small)
+plotshape(buy13 and not buyConfluence, "Buy 13", style=shape.labelup, location=location.belowbar, color=color.new(color.lime, 0), text="13", textcolor=color.black, size=size.small)
+plotshape(sell13 and not sellConfluence, "Sell 13", style=shape.labeldown, location=location.abovebar, color=color.new(color.maroon, 0), text="13", textcolor=color.white, size=size.small)
 
-plotshape(showCombo and buyCombo13, "Combo Buy 13", style=shape.diamond, location=location.belowbar, color=color.new(color.aqua, 0), size=size.small)
-plotshape(showCombo and sellCombo13, "Combo Sell 13", style=shape.diamond, location=location.abovebar, color=color.new(color.fuchsia, 0), size=size.small)
+plotshape(showCombo and buyCombo13 and not buyConfluence, "Combo Buy 13", style=shape.diamond, location=location.belowbar, color=color.new(color.aqua, 0), size=size.small)
+plotshape(showCombo and sellCombo13 and not sellConfluence, "Combo Sell 13", style=shape.diamond, location=location.abovebar, color=color.new(color.fuchsia, 0), size=size.small)
+
+plotshape(buyConfluence, "Buy 13 confluence", style=shape.labelup, location=location.belowbar, color=color.new(color.blue, 0), text="13x2", textcolor=color.white, size=size.normal)
+plotshape(sellConfluence, "Sell 13 confluence", style=shape.labeldown, location=location.abovebar, color=color.new(color.orange, 0), text="13x2", textcolor=color.black, size=size.normal)
 
 plotshape(buyDeferred, "Buy 13 deferred", style=shape.xcross, location=location.belowbar, color=color.new(color.gray, 30), size=size.tiny)
 plotshape(sellDeferred, "Sell 13 deferred", style=shape.xcross, location=location.abovebar, color=color.new(color.gray, 30), size=size.tiny)
@@ -219,4 +227,6 @@ alertcondition(buy13, "Sequential Buy 13", "TD Sequential buy countdown complete
 alertcondition(sell13, "Sequential Sell 13", "TD Sequential sell countdown completed")
 alertcondition(buyCombo13, "Combo Buy 13", "TD Combo buy countdown completed")
 alertcondition(sellCombo13, "Combo Sell 13", "TD Combo sell countdown completed")
+alertcondition(buyConfluence, "Buy 13 confluence", "Sequential and Combo buy 13 on the same bar")
+alertcondition(sellConfluence, "Sell 13 confluence", "Sequential and Combo sell 13 on the same bar")
 alertcondition(buyCancelled or sellCancelled, "Countdown cancelled", "An active TD countdown was cancelled")

@@ -59,12 +59,14 @@ script instead of many, then toggle the tools you want from its settings.
 
 | Suite script | Bundles |
 |---|---|
-| `pine/all_oscillators.pine` | All 8 oscillators (DeMarker, DeMarker II, Pressure Ratio, TDREI, POQ, Alignment, ROC, TD Oscillator) — each toggleable, normalized to one 0–100 pane |
-| `pine/all_sequential.pine` | TD Setup, classic Countdown, TD Combo and Ultimate qualifiers on one chart |
-| `pine/all_levels_trend.pine` | TDST, TD Lines, TD MA I/II, TD Range Projection, TD Retracements, DeMark Trendline and TD D-Wave on one chart |
+| `pine/all_oscillators.pine` | All 8 oscillators — DeMarker, DeMarker II, Pressure Ratio, TD REI (with its ±45 bands and duration test), POQ, Alignment (with signal line), ROC (with signal line), TD Oscillator. Each toggleable; unbounded ones rescaled onto one 0–100 pane, with crossings evaluated on the raw series. |
+| `pine/all_sequential.pine` | TD Setup (with perfection), Countdown (with the 13-vs-8 deferral and both cancellation rules), TD Combo, Sequential/Combo confluence, and the TDST guard levels. |
+| `pine/all_levels_trend.pine` | TDST, TD Points, TD Lines (levels 1–3), TD MA I/II (with confirmation colouring and crosses), TD Range Projection, TD Retracements (with qualifier shading), DeMark Trendline and TD D-Wave. |
 
 Between them the three suites cover all 20 indicators, so you never need to
-add more than these three scripts to a chart.
+add more than these three scripts to a chart. This is enforced by
+`tools/check_suite_coverage.py`, which fails if any indicator's plots or
+logic go missing from its suite.
 
 ## Use in TradingView
 
@@ -97,9 +99,10 @@ See [`python/README.md`](python/README.md) for the full API.
 ## Verification
 
 ```bash
-python3 tools/lint_pine.py        # static check of all 22 Pine v6 scripts
-python3 python/test_correctness.py  # 22 hand-verified DeMark rule tests
-cd python && python3 self_test.py   # all 20 indicators over synthetic data
+python3 tools/lint_pine.py             # static check of all 22 Pine v6 scripts
+python3 tools/check_suite_coverage.py  # every indicator present in its suite
+python3 python/test_correctness.py     # 22 hand-verified DeMark rule tests
+cd python && python3 self_test.py      # all 20 indicators over synthetic data
 ```
 
 `tools/lint_pine.py` catches reserved words used as identifiers, wrong
