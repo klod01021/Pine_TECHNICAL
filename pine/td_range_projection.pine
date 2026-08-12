@@ -1,0 +1,19 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// TD Range Projection — next-bar projected high/low
+//@version=6
+indicator("TD Range Projection", shorttitle="TD Range Proj", overlay=true, timeframe="", timeframe_gaps=true)
+
+upBar = close >= open
+
+projHigh = upBar ? 2.0 * high - low : 2.0 * high - close
+projLow = upBar ? 2.0 * low - high : 2.0 * low - close
+
+// Shift forward one bar so the projection aligns with the bar it targets.
+plot(projHigh, "Projected High", color=color.new(color.red, 0), style=plot.style_linebr, offset=1, linewidth=2)
+plot(projLow, "Projected Low", color=color.new(color.green, 0), style=plot.style_linebr, offset=1, linewidth=2)
+
+// Track accuracy: did the next bar actually reach the projection?
+hitHigh = high >= projHigh[1]
+hitLow = low <= projLow[1]
+plotshape(hitHigh, "High Hit", style=shape.circle, location=location.abovebar, color=color.new(color.red, 60), size=size.tiny)
+plotshape(hitLow, "Low Hit", style=shape.circle, location=location.belowbar, color=color.new(color.green, 60), size=size.tiny)

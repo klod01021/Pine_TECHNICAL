@@ -1,0 +1,20 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// TD Oscillator — generalized DeMark momentum spread
+//@version=6
+indicator("TD Oscillator", shorttitle="TD Osc", overlay=false, timeframe="", timeframe_gaps=true)
+
+shortLen = input.int(3, "Short SMA", minval=1)
+longLen = input.int(9, "Long SMA", minval=1)
+
+fastMa = ta.sma(close, shortLen)
+slowMa = ta.sma(close, longLen)
+
+osc = slowMa == 0.0 ? 0.0 : 100.0 * (fastMa - slowMa) / slowMa
+
+plot(osc, "TD Oscillator", color=color.new(color.blue, 0), linewidth=2)
+hline(0, "Zero", color=color.new(color.gray, 60))
+
+bgcolor(osc > 0 ? color.new(color.green, 92) : color.new(color.red, 92))
+
+plotshape(ta.crossover(osc, 0), "Bullish Zero Cross", style=shape.triangleup, location=location.bottom, color=color.green, size=size.tiny)
+plotshape(ta.crossunder(osc, 0), "Bearish Zero Cross", style=shape.triangledown, location=location.top, color=color.red, size=size.tiny)

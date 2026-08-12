@@ -1,0 +1,34 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// TD Range Expansion Index (TDREI) — Tom DeMark
+//@version=6
+indicator("TD Range Expansion Index", shorttitle="TDREI", overlay=false, timeframe="", timeframe_gaps=true)
+
+length = input.int(5, "REI Length", minval=1)
+overbought = input.float(40.0, "Overbought")
+oversold = input.float(-40.0, "Oversold")
+
+upCond = (high[5] >= low[6]) or (high[6] >= low[5])
+dnCond = (low[5] <= high[6]) or (low[6] <= high[5])
+
+upVal = (high - high[2]) + (low - low[2])
+dnVal = (high[1] - high[3]) + (low[1] - low[3])
+
+float expansion = 0.0
+if upCond and dnCond
+    expansion := upVal + dnVal
+else if upCond
+    expansion := upVal
+else if dnCond
+    expansion := dnVal
+
+numerator = math.sum(expansion, length)
+denominator = math.sum(math.abs(expansion), length)
+
+rei = denominator == 0.0 ? 0.0 : 100.0 * numerator / denominator
+
+plot(rei, "TDREI", color=color.new(color.teal, 0), linewidth=2)
+plot(overbought, "Overbought", color=color.new(color.red, 40))
+plot(oversold, "Oversold", color=color.new(color.green, 40))
+hline(0, "Mid", color=color.new(color.gray, 60))
+
+bgcolor(rei > overbought ? color.new(color.red, 90) : rei < oversold ? color.new(color.green, 90) : na)

@@ -1,0 +1,26 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// TD Moving Average I & II — Tom DeMark
+//@version=6
+indicator("TD Moving Average I/II", shorttitle="TD MA", overlay=true, timeframe="", timeframe_gaps=true)
+
+fastLen = input.int(5, "TD MA I Length", minval=1)
+slowLen = input.int(13, "TD MA II Length", minval=1)
+confirmBars = input.int(1, "Confirmation Bars", minval=1)
+
+ma1 = ta.sma(close, fastLen)
+ma2 = ta.sma(close, slowLen)
+
+above = close > ma1
+below = close < ma1
+bullish = math.sum(above ? 1 : 0, confirmBars) >= confirmBars
+bearish = math.sum(below ? 1 : 0, confirmBars) >= confirmBars
+
+trendUp = ma1 > ma2
+
+plot(ma1, "TD MA I", color=color.new(color.blue, 0), linewidth=2)
+plot(ma2, "TD MA II", color=color.new(color.orange, 0), linewidth=2)
+
+barcolor(not trendUp and bullish ? color.new(color.lime, 40) : trendUp and bearish ? color.new(color.red, 40) : na)
+
+plotshape(ta.crossover(ma1, ma2), "Bullish Cross", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.tiny)
+plotshape(ta.crossunder(ma1, ma2), "Bearish Cross", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)

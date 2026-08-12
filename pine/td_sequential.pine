@@ -1,0 +1,74 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// TD Sequential (Setup 1-9 + classic Countdown 1-13) — Tom DeMark
+//@version=6
+indicator("TD Sequential", shorttitle="TD Seq", overlay=true, timeframe="", timeframe_gaps=true, max_labels_count=500)
+
+setupLen = input.int(9, "Setup Length", minval=1)
+cdLen = input.int(13, "Countdown Length", minval=1)
+cmp = input.int(4, "Comparison Bars", minval=1)
+
+// --- TD Setup -------------------------------------------------------------
+var int buySetup = 0
+var int sellSetup = 0
+
+if close < close[cmp]
+    buySetup := buySetup + 1
+    sellSetup := 0
+else if close > close[cmp]
+    sellSetup := sellSetup + 1
+    buySetup := 0
+else
+    buySetup := buySetup
+    sellSetup := sellSetup
+
+// Recycle once a setup passes 9.
+if buySetup > setupLen
+    buySetup := 1
+if sellSetup > setupLen
+    sellSetup := 1
+
+// --- TD Countdown ----------------------------------------------------------
+var int buyCd = 0
+var int sellCd = 0
+var bool buyActive = false
+var bool sellActive = false
+
+if buySetup == setupLen
+    buyActive := true
+    buyCd := 0
+if sellSetup == setupLen
+    sellActive := true
+    sellCd := 0
+
+buySig = false
+sellSig = false
+
+if buyActive and bar_index >= 2 and close <= low[2]
+    buyCd += 1
+    if buyCd == cdLen
+        buySig := true
+        buyActive := false
+
+if sellActive and bar_index >= 2 and close >= high[2]
+    sellCd += 1
+    if sellCd == cdLen
+        sellSig := true
+        sellActive := false
+
+// --- Plots ------------------------------------------------------------------
+plotshape(buySetup == setupLen, "Buy 9", style=shape.labelup, location=location.belowbar, color=color.green, text="9", textcolor=color.white, size=size.tiny)
+plotshape(sellSetup == setupLen, "Sell 9", style=shape.labeldown, location=location.abovebar, color=color.red, text="9", textcolor=color.white, size=size.tiny)
+plotshape(buySig, "Buy 13", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.small)
+plotshape(sellSig, "Sell 13", style=shape.triangledown, location=location.abovebar, color=color.maroon, size=size.small)
+
+// Live counts as numbers under/over the bars.
+plotchar(buySetup > 0 and buySetup < setupLen, "Buy count active", "", location.belowbar, color=color.new(color.green, 60), size=size.tiny)
+plotchar(sellSetup > 0 and sellSetup < setupLen, "Sell count active", "", location.abovebar, color=color.new(color.red, 60), size=size.tiny)
+
+if buySetup > 0 and buySetup < setupLen
+    label.new(bar_index, low, str.tostring(buySetup), xloc=xloc.bar_index, style=label.style_label_up, color=color.new(color.green, 100), textcolor=color.new(color.green, 40), size=size.tiny)
+if sellSetup > 0 and sellSetup < setupLen
+    label.new(bar_index, high, str.tostring(sellSetup), xloc=xloc.bar_index, style=label.style_label_down, color=color.new(color.red, 100), textcolor=color.new(color.red, 40), size=size.tiny)
+
+alertcondition(buySig, "TD Sequential Buy 13", "TD Sequential buy countdown completed")
+alertcondition(sellSig, "TD Sequential Sell 13", "TD Sequential sell countdown completed")

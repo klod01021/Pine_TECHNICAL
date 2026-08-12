@@ -1,0 +1,92 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// TD D-Wave — DeMark's mechanical Elliott-style wave counter
+//@version=6
+indicator("TD D-Wave", shorttitle="TD D-Wave", overlay=true, timeframe="", timeframe_gaps=true, max_labels_count=500, max_lines_count=500)
+
+left = input.int(5, "TD Point Left Bars", minval=1)
+right = input.int(5, "TD Point Right Bars", minval=1)
+
+ph = ta.pivothigh(high, left, right)
+pl = ta.pivotlow(low, left, right)
+
+// Collect alternating pivots (zigzag).
+var array<int> pivBar = array.new<int>()
+var array<float> pivPrice = array.new<float>()
+var array<bool> pivIsHigh = array.new<bool>()
+
+addPivot(price, isHigh) =>
+    int n = pivBar.size()
+    if n > 0 and pivIsHigh.get(n - 1) == isHigh
+        // Same kind twice: keep the more extreme one.
+        if (isHigh and price > pivPrice.get(n - 1)) or (not isHigh and price < pivPrice.get(n - 1))
+            pivBar.set(n - 1, bar_index - right)
+            pivPrice.set(n - 1, price)
+    else
+        pivBar.push(bar_index - right)
+        pivPrice.push(price)
+        pivIsHigh.push(isHigh)
+
+if not na(ph)
+    addPivot(ph, true)
+if not na(pl)
+    addPivot(pl, false)
+
+// Wave name lookup (method call on a literal keeps the compiler happy).
+f_waveName(idx) =>
+    switch math.min(idx, 7)
+        0 => "W1"
+        1 => "W2"
+        2 => "W3"
+        3 => "W4"
+        4 => "W5"
+        5 => "WA"
+        6 => "WB"
+        => "WC"
+
+// Recompute the wave labels for the whole pivot list on every bar so the
+// count always reflects the latest pivot set.
+var array<int> waveOfPivot = array.new<int>()  // 0=W1 ... 4=W5, 5=WA, 6=WB, 7=WC
+
+if pivBar.size() >= 2
+    waveOfPivot.clear()
+    waveOfPivot.push(0)  // first pivot is the origin (start of W1)
+    upCount = pivIsHigh.get(1)
+    int wIdx = 0
+    float waveOrigin = pivPrice.get(0)
+    float w1Extreme = na
+    float w3Extreme = na
+
+    for p = 1 to pivBar.size() - 1
+        float price = pivPrice.get(p)
+        valid = true
+        if wIdx == 1  // W2: must not exceed the wave-1 origin
+            valid := upCount ? price >= waveOrigin : price <= waveOrigin
+            if valid
+                w1Extreme := pivPrice.get(p - 1)
+        else if wIdx == 2  // W3: must extend beyond wave 1's extreme
+            valid := na(w1Extreme) or (upCount ? price > w1Extreme : price < w1Extreme)
+            if valid
+                w3Extreme := price
+        else if wIdx == 3  // W4: must not overlap wave 1
+            valid := na(w1Extreme) or (upCount ? price >= w1Extreme : price <= w1Extreme)
+        else if wIdx == 4  // W5: must push beyond wave 3's extreme
+            valid := na(w3Extreme) or (upCount ? price > w3Extreme : price < w3Extreme)
+
+        if valid and wIdx < 8
+            waveOfPivot.push(wIdx)
+            wIdx += 1
+        else
+            // Rule violation: restart the count from the previous pivot.
+            waveOfPivot.push(0)
+            upCount := not pivIsHigh.get(p)
+            waveOrigin := pivPrice.get(p - 1)
+            wIdx := 1
+            w1Extreme := na
+            w3Extreme := na
+
+// Redraw the zigzag and labels on the last bar only.
+if barstate.islast and pivBar.size() >= 2
+    for p = 1 to pivBar.size() - 1
+        line.new(pivBar.get(p - 1), pivPrice.get(p - 1), pivBar.get(p), pivPrice.get(p), xloc=xloc.bar_index, color=color.new(color.blue, 0), width=2)
+        if p < waveOfPivot.size()
+            label.new(pivBar.get(p), pivPrice.get(p), f_waveName(waveOfPivot.get(p)), xloc=xloc.bar_index, style=pivIsHigh.get(p) ? label.style_label_down : label.style_label_up, color=color.new(color.blue, 20), textcolor=color.white, size=size.small)

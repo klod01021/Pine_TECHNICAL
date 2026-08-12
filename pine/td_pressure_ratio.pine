@@ -1,0 +1,24 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// TD Pressure Ratio — Tom DeMark
+//@version=6
+indicator("TD Pressure Ratio", shorttitle="TDPR", overlay=false, timeframe="", timeframe_gaps=true)
+
+length = input.int(13, "Length", minval=1)
+overbought = input.float(75.0, "Overbought")
+oversold = input.float(25.0, "Oversold")
+
+trueRange = math.max(math.max(high - low, math.abs(high - close[1])), math.abs(low - close[1]))
+buying = math.max(close - low, 0.0) * trueRange
+selling = math.max(high - close, 0.0) * trueRange
+
+sumBuy = ta.sma(buying, length)
+sumSell = ta.sma(selling, length)
+
+ratio = (sumBuy + sumSell) == 0.0 ? 0.0 : 100.0 * sumBuy / (sumBuy + sumSell)
+
+plot(ratio, "Pressure Ratio", color=color.new(color.purple, 0), linewidth=2)
+plot(overbought, "Overbought", color=color.new(color.red, 40))
+plot(oversold, "Oversold", color=color.new(color.green, 40))
+hline(50, "Mid", color=color.new(color.gray, 60))
+
+bgcolor(ratio > overbought ? color.new(color.red, 90) : ratio < oversold ? color.new(color.green, 90) : na)

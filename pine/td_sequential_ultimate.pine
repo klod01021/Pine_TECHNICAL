@@ -1,0 +1,81 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// TD Sequential Ultimate — classic count with DeMark's qualifier rules
+//@version=6
+indicator("TD Sequential Ultimate", shorttitle="TD Seq Ult", overlay=true, timeframe="", timeframe_gaps=true, max_labels_count=500)
+
+setupLen = input.int(9, "Setup Length", minval=1)
+cdLen = input.int(13, "Countdown Length", minval=1)
+cmp = input.int(4, "Comparison Bars", minval=1)
+
+// --- TD Setup -------------------------------------------------------------
+var int buySetup = 0
+var int sellSetup = 0
+if close < close[cmp]
+    buySetup += 1
+    sellSetup := 0
+else if close > close[cmp]
+    sellSetup += 1
+    buySetup := 0
+
+if buySetup > setupLen
+    buySetup := 1
+if sellSetup > setupLen
+    sellSetup := 1
+
+// --- Countdown with history tracking --------------------------------------
+var int buyCd = 0
+var int sellCd = 0
+var bool buyActive = false
+var bool sellActive = false
+var float buyCd8Close = na
+var float sellCd8Close = na
+var float buyCdLowest = na
+var float sellCdHighest = na
+
+if buySetup == setupLen
+    buyActive := true
+    buyCd := 0
+    buyCd8Close := na
+    buyCdLowest := na
+if sellSetup == setupLen
+    sellActive := true
+    sellCd := 0
+    sellCd8Close := na
+    sellCdHighest := na
+
+buy13 = false
+sell13 = false
+
+if buyActive and bar_index >= 2 and close <= low[2]
+    buyCd += 1
+    if buyCd == 8
+        buyCd8Close := close
+    buyCdLowest := na(buyCdLowest) ? low : math.min(buyCdLowest, low)
+    if buyCd == cdLen
+        buy13 := true
+        buyActive := false
+
+if sellActive and bar_index >= 2 and close >= high[2]
+    sellCd += 1
+    if sellCd == 8
+        sellCd8Close := close
+    sellCdHighest := na(sellCdHighest) ? high : math.max(sellCdHighest, high)
+    if sellCd == cdLen
+        sell13 := true
+        sellActive := false
+
+// Qualifiers on a completed 13.
+buyAggressive = buy13 and not na(buyCd8Close) and close <= buyCd8Close
+buyConservative = buy13 and low <= buyCdLowest
+sellAggressive = sell13 and not na(sellCd8Close) and close >= sellCd8Close
+sellConservative = sell13 and high >= sellCdHighest
+
+plotshape(buySetup == setupLen, "Buy 9", style=shape.labelup, location=location.belowbar, color=color.green, text="9", textcolor=color.white, size=size.tiny)
+plotshape(sellSetup == setupLen, "Sell 9", style=shape.labeldown, location=location.abovebar, color=color.red, text="9", textcolor=color.white, size=size.tiny)
+plotshape(buyAggressive, "Buy 13 Aggressive", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.small)
+plotshape(sellAggressive, "Sell 13 Aggressive", style=shape.triangledown, location=location.abovebar, color=color.maroon, size=size.small)
+plotshape(buyConservative, "Buy 13 Conservative", style=shape.circle, location=location.belowbar, color=color.blue, size=size.tiny)
+plotshape(sellConservative, "Sell 13 Conservative", style=shape.circle, location=location.abovebar, color=color.orange, size=size.tiny)
+
+alertcondition(buy13, "TD Seq Ult Buy 13", "TD Sequential Ultimate buy countdown completed")
+alertcondition(sell13, "TD Seq Ult Sell 13", "TD Sequential Ultimate sell countdown completed")

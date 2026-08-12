@@ -1,0 +1,58 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// TD Lines — Supply/Demand lines from TD Points (levels 1-3)
+//@version=6
+indicator("TD Lines (Supply/Demand)", shorttitle="TD Lines", overlay=true, timeframe="", timeframe_gaps=true, max_lines_count=500)
+
+left = input.int(1, "TD Point Left Bars", minval=1)
+right = input.int(1, "TD Point Right Bars", minval=1)
+
+// --- TD Points ---------------------------------------------------------------
+ph = ta.pivothigh(high, left, right)
+pl = ta.pivotlow(low, left, right)
+
+// Keep the four most recent pivots of each side (enough for levels 1-3).
+var array<float> hiPrice = array.new<float>()
+var array<int> hiBar = array.new<int>()
+var array<float> loPrice = array.new<float>()
+var array<int> loBar = array.new<int>()
+
+if not na(ph)
+    hiPrice.push(ph)
+    hiBar.push(bar_index - right)
+    if hiPrice.size() > 4
+        hiPrice.shift()
+        hiBar.shift()
+
+if not na(pl)
+    loPrice.push(pl)
+    loBar.push(bar_index - right)
+    if loPrice.size() > 4
+        loPrice.shift()
+        loBar.shift()
+
+// Draw the active level-1 lines each time a new pivot confirms.
+var line demandLine = na
+var line supplyLine = na
+
+if loPrice.size() >= 2
+    line.delete(demandLine)
+    n = loPrice.size()
+    demandLine := line.new(loBar.get(n - 2), loPrice.get(n - 2), loBar.get(n - 1), loPrice.get(n - 1), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.green, 0), width=2)
+
+if hiPrice.size() >= 2
+    line.delete(supplyLine)
+    n = hiPrice.size()
+    supplyLine := line.new(hiBar.get(n - 2), hiPrice.get(n - 2), hiBar.get(n - 1), hiPrice.get(n - 1), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.red, 0), width=2)
+
+// Break alerts on the level-1 lines.
+demandVal = loPrice.size() >= 2 ? line.get_price(demandLine, bar_index) : na
+supplyVal = hiPrice.size() >= 2 ? line.get_price(supplyLine, bar_index) : na
+
+demandBreak = not na(demandVal) and close < demandVal
+supplyBreak = not na(supplyVal) and close > supplyVal
+
+plotshape(demandBreak, "Demand Break", style=shape.xcross, location=location.belowbar, color=color.red, size=size.tiny)
+plotshape(supplyBreak, "Supply Break", style=shape.xcross, location=location.abovebar, color=color.green, size=size.tiny)
+
+alertcondition(demandBreak, "TD Demand Line Broken", "Price closed below the TD demand line")
+alertcondition(supplyBreak, "TD Supply Line Broken", "Price closed above the TD supply line")

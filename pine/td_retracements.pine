@@ -1,0 +1,30 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// TD Retracements (Relative Retracement / Arc magnets) — Tom DeMark
+//@version=6
+indicator("TD Retracements", shorttitle="TD Retr", overlay=true, timeframe="", timeframe_gaps=true)
+
+lookback = input.int(100, "Swing Lookback", minval=2)
+showQualifier = input.bool(true, "Show Qualifier Background")
+
+swingHigh = ta.highest(high, lookback)
+swingLow = ta.lowest(low, lookback)
+swingRange = swingHigh - swingLow
+
+up382 = swingLow + swingRange * 0.382
+up618 = swingLow + swingRange * 0.618
+down382 = swingHigh - swingRange * 0.382
+down618 = swingHigh - swingRange * 0.618
+
+// Qualifier: the close sits in the extreme third of the bar's range.
+barRange = high - low
+qualifiedUp = barRange > 0 and close >= low + barRange * (2.0 / 3.0)
+qualifiedDown = barRange > 0 and close <= low + barRange * (1.0 / 3.0)
+
+plot(swingHigh, "Swing High", color=color.new(color.red, 30), style=plot.style_linebr)
+plot(swingLow, "Swing Low", color=color.new(color.green, 30), style=plot.style_linebr)
+plot(up382, "Up 38.2%", color=color.new(color.teal, 40), style=plot.style_linebr)
+plot(up618, "Up 61.8%", color=color.new(color.teal, 0), style=plot.style_linebr)
+plot(down382, "Down 38.2%", color=color.new(color.orange, 40), style=plot.style_linebr)
+plot(down618, "Down 61.8%", color=color.new(color.orange, 0), style=plot.style_linebr)
+
+bgcolor(showQualifier and qualifiedUp ? color.new(color.green, 92) : showQualifier and qualifiedDown ? color.new(color.red, 92) : na)

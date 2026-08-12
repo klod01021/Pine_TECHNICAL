@@ -1,0 +1,23 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// DeMarker (DeM) oscillator — Tom DeMark
+//@version=6
+indicator("DeMarker (DeM)", shorttitle="DeM", overlay=false, timeframe="", timeframe_gaps=true)
+
+length = input.int(14, "DeM Length", minval=1)
+overbought = input.float(70.0, "Overbought")
+oversold = input.float(30.0, "Oversold")
+
+demHigh = math.max(high - high[1], 0.0)
+demLow = math.max(low[1] - low, 0.0)
+
+sumHigh = ta.sma(demHigh, length)
+sumLow = ta.sma(demLow, length)
+
+dem = (sumHigh + sumLow) == 0.0 ? 0.0 : 100.0 * sumHigh / (sumHigh + sumLow)
+
+plot(dem, "DeM", color=color.new(color.blue, 0), linewidth=2)
+plot(overbought, "Overbought", color=color.new(color.red, 40))
+plot(oversold, "Oversold", color=color.new(color.green, 40))
+hline(50, "Mid", color=color.new(color.gray, 60))
+
+bgcolor(dem > overbought ? color.new(color.red, 90) : dem < oversold ? color.new(color.green, 90) : na)
