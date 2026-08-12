@@ -87,6 +87,22 @@ Each script opens with a **Preset** dropdown so it is usable immediately:
 A typical setup is v1 on Standard, v2 on Essential or Standard, and v3 on
 Standard, then reaching for Custom once you know what you want.
 
+### Or group by indicator family
+
+The original type-based suites are still here if you prefer that split. They
+carry the same corrected calculations; they simply predate the preset system
+and the TD Risk Level.
+
+| Script | Bundles |
+|---|---|
+| `pine/all_sequential.pine` | TD Setup, Countdown, Combo, confluence, TDST |
+| `pine/all_levels_trend.pine` | TDST, TD Points, TD Lines, TD MA I/II, Range Projection, Retracements, Trendline, D-Wave |
+| `pine/all_oscillators.pine` | All 8 oscillators |
+
+Use one grouping or the other — loading both puts the same calculations on
+the chart twice. All six scripts have distinct titles, so TradingView will
+let you add them together if you want to compare.
+
 ## Keeping the chart readable
 
 Start with the **Preset** dropdown rather than the individual checkboxes.

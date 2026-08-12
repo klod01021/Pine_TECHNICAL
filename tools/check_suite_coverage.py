@@ -111,10 +111,33 @@ LEVELS: Coverage = {
     "TD D-Wave": ([], [r"f_waveName", r"addWavePivot", r"w3Extreme"]),
 }
 
+# The original type-based suites are still shipped alongside v1/v2/v3 for
+# anyone who prefers that grouping. They predate the preset system and the TD
+# Risk Level, so they carry their own expectations.
+LEGACY_OSCILLATORS: Coverage = {
+    k: v for k, v in OSCILLATORS.items() if k != "Preset selector"
+}
+LEGACY_SEQUENTIAL: Coverage = {
+    k: v
+    for k, v in SEQUENTIAL.items()
+    if k not in ("Preset selector", "TD Risk Level")
+}
+LEGACY_LEVELS: Coverage = {
+    k: v for k, v in LEVELS.items() if k != "Preset selector"
+}
+# TDST lives in the levels suite under the original grouping.
+LEGACY_LEVELS["TDST"] = (
+    ["TDST Resistance", "TDST Support"],
+    [r"setupHighest", r"setupLowest"],
+)
+
 SUITES = [
     ("demark_v1_signals.pine", "v1 — Signals", SEQUENTIAL),
     ("demark_v2_trend_targets.pine", "v2 — Trend & Targets", LEVELS),
     ("demark_v3_momentum.pine", "v3 — Momentum", OSCILLATORS),
+    ("all_sequential.pine", "Legacy suite — Sequential", LEGACY_SEQUENTIAL),
+    ("all_levels_trend.pine", "Legacy suite — Levels & Trend", LEGACY_LEVELS),
+    ("all_oscillators.pine", "Legacy suite — Oscillators", LEGACY_OSCILLATORS),
 ]
 
 missing_total = 0
