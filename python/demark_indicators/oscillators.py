@@ -114,32 +114,47 @@ def td_pressure_ratio(df: pd.DataFrame, length: int = 13) -> pd.DataFrame:
 def td_range_expansion_index(df: pd.DataFrame, length: int = 5) -> pd.DataFrame:
     """TD Range Expansion Index (-100 to +100).
 
-    Per-bar expansion value uses highs/lows 5 and 6 bars back versus the
-    prior two bars; bars failing the choppiness filter contribute 0.
-    Readings above +40 (below -40) flag overbought (oversold); DeMark
-    treats lingering readings as a trending, not exhausted, market.
+    DeMark's published formula. Each bar contributes
+    ``(high - high[2]) + (low - low[2])`` only when one of two qualifying
+    filters holds; otherwise the bar contributes zero to both the numerator
+    and the denominator:
+
+    * Filter A: ``(high >= low[5] or high >= low[6])`` and
+      ``(low <= high[5] or low <= high[6])``
+    * Filter B: ``(high[2] >= close[7] or high[2] >= close[8])`` and
+      ``(low[2] <= close[7] or low[2] <= close[8])``
+
+    ``REI = 100 * sum(value, n) / sum(|dh| + |dl|, n)`` over qualified bars.
+    Readings beyond +45 / -45 are the standard overbought / oversold
+    thresholds; DeMark treats readings that persist beyond six bars as a
+    trending rather than exhausted market.
     """
     validate_ohlc(df)
     high, low, close = df["high"], df["low"], df["close"]
 
-    h5, h6 = high.shift(5), high.shift(6)
-    l5, l6 = low.shift(5), low.shift(6)
+    cond_a = ((high >= low.shift(5)) | (high >= low.shift(6))) & (
+        (low <= high.shift(5)) | (low <= high.shift(6))
+    )
+    cond_b = ((high.shift(2) >= close.shift(7)) | (high.shift(2) >= close.shift(8))) & (
+        (low.shift(2) <= close.shift(7)) | (low.shift(2) <= close.shift(8))
+    )
+    # The filters reference closes 8 bars back, so the indicator is undefined
+    # until that much history exists; those bars contribute nothing.
+    enough_history = close.shift(8).notna()
+    qualified = (cond_a | cond_b) & enough_history
 
-    up_cond = (h5 >= l6) | (h6 >= l5)
-    dn_cond = (l5 <= h6) | (l6 <= h5)
+    dh = high - high.shift(2)
+    dl = low - low.shift(2)
 
-    up_val = (high - high.shift(2)) + (low - low.shift(2))
-    dn_val = (high.shift(1) - high.shift(3)) + (low.shift(1) - low.shift(3))
+    value = (dh + dl).where(qualified, 0.0)
+    abs_value = (dh.abs() + dl.abs()).where(qualified, 0.0)
 
-    expansion = pd.Series(0.0, index=df.index)
-    expansion = expansion.where(~(up_cond & dn_cond), up_val + dn_val)
-    expansion = expansion.where(~(up_cond & ~dn_cond), up_val)
-    expansion = expansion.where(~(~up_cond & dn_cond), dn_val)
+    numerator = value.rolling(length).sum()
+    denominator = abs_value.rolling(length).sum()
 
-    numerator = expansion.rolling(length).sum()
-    denominator = expansion.abs().rolling(length).sum()
-
-    rei = np.where(denominator == 0.0, 0.0, 100.0 * numerator / denominator)
+    rei = np.where(
+        (denominator == 0.0) | denominator.isna(), 0.0, 100.0 * numerator / denominator
+    )
     return pd.DataFrame({"rei": rei}, index=df.index)
 
 

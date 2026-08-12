@@ -14,14 +14,23 @@ from .sequential import td_setup
 # TDST (TD Setup Trend)
 # ---------------------------------------------------------------------------
 
-def td_setup_trend(df: pd.DataFrame, setup_length: int = 9, compare: int = 4) -> pd.DataFrame:
-    """TD Setup Trend support / resistance.
+def td_setup_trend(
+    df: pd.DataFrame,
+    setup_length: int = 9,
+    compare: int = 4,
+    clear_on_break: bool = False,
+) -> pd.DataFrame:
+    """TD Setup Trend (TDST) support / resistance.
 
-    When a buy setup completes (9), TDST support is set to the lowest low
-    of that setup's 9 bars. When a sell setup completes, TDST resistance
-    is set to the highest high of the 9 bars. Levels persist until price
-    closes through them (support broken on a close below, resistance on a
-    close above) or until a new setup replaces them.
+    Per DeMark, a completed **buy** setup (nine consecutive lower closes, i.e.
+    a downtrend) defines TDST **resistance** at the *highest high* of those
+    nine bars — the level whose breach invalidates the bullish reversal
+    thesis. A completed **sell** setup defines TDST **support** at the
+    *lowest low* of its nine bars.
+
+    Each level holds until the next setup in the same direction replaces it.
+    A close beyond a level is flagged as a break; set ``clear_on_break`` to
+    drop the level from the output once broken instead of carrying it.
 
     Output: ``tdst_support``, ``tdst_resistance``, plus boolean
     ``support_broken`` / ``resistance_broken`` event columns.
@@ -33,8 +42,8 @@ def td_setup_trend(df: pd.DataFrame, setup_length: int = 9, compare: int = 4) ->
     n = len(close)
 
     setups = td_setup(df, setup_length, compare)
-    buy_setup = setups["buy_setup"].to_numpy()
-    sell_setup = setups["sell_setup"].to_numpy()
+    buy_done = setups["buy_setup_complete"].to_numpy()
+    sell_done = setups["sell_setup_complete"].to_numpy()
 
     support = np.full(n, np.nan)
     resistance = np.full(n, np.nan)
@@ -45,19 +54,22 @@ def td_setup_trend(df: pd.DataFrame, setup_length: int = 9, compare: int = 4) ->
     cur_resistance = np.nan
 
     for i in range(n):
-        if not np.isnan(buy_setup[i]) and buy_setup[i] == setup_length:
-            start = max(0, i - setup_length + 1)
-            cur_support = low[start : i + 1].min()
-        if not np.isnan(sell_setup[i]) and sell_setup[i] == setup_length:
+        # Buy setup -> resistance (highest high); sell setup -> support.
+        if buy_done[i]:
             start = max(0, i - setup_length + 1)
             cur_resistance = high[start : i + 1].max()
+        if sell_done[i]:
+            start = max(0, i - setup_length + 1)
+            cur_support = low[start : i + 1].min()
 
         if not np.isnan(cur_support) and close[i] < cur_support:
             support_broken[i] = True
-            cur_support = np.nan
+            if clear_on_break:
+                cur_support = np.nan
         if not np.isnan(cur_resistance) and close[i] > cur_resistance:
             resistance_broken[i] = True
-            cur_resistance = np.nan
+            if clear_on_break:
+                cur_resistance = np.nan
 
         support[i] = cur_support
         resistance[i] = cur_resistance

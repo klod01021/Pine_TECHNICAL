@@ -82,15 +82,19 @@ def main() -> None:
 
     # Sequential family --------------------------------------------------------
     out = dm.td_setup(df)
-    check("td_setup", out, n, ["buy_setup", "sell_setup"])
-    buys = out["buy_setup"].dropna()
-    if len(buys):
-        assert buys.max() <= 9, "buy setup exceeded 9"
+    check("td_setup", out, n, ["buy_setup", "sell_setup", "buy_setup_perfected"])
+    assert out["buy_setup"].max() <= 9, "buy setup exceeded 9"
+    assert out["sell_setup"].max() <= 9, "sell setup exceeded 9"
+    print(f"      setups completed: {int(out['buy_setup_complete'].sum())} buy, "
+          f"{int(out['sell_setup_complete'].sum())} sell "
+          f"({int(out['buy_setup_perfected'].sum())} perfected buys)")
 
     out = dm.td_countdown(df)
-    check("td_countdown", out, n, ["buy_countdown", "sell_countdown"])
+    check("td_countdown", out, n, ["buy_countdown", "sell_countdown", "buy_deferred"])
+    assert out["buy_countdown"].max() <= 13, "buy countdown exceeded 13"
     print(f"      countdown buy 13s: {int(out['buy_signal'].sum())}, "
-          f"sell 13s: {int(out['sell_signal'].sum())}")
+          f"sell 13s: {int(out['sell_signal'].sum())}, "
+          f"cancelled: {int(out['buy_cancelled'].sum() + out['sell_cancelled'].sum())}")
 
     out = dm.td_combo(df)
     check("td_combo", out, n, ["buy_combo", "sell_combo"])
@@ -99,7 +103,7 @@ def main() -> None:
 
     out = dm.td_sequential_ultimate(df)
     check("td_sequential_ultimate", out, n,
-          ["buy_aggressive", "buy_conservative"])
+          ["buy_confluence", "sell_confluence", "buy_combo"])
 
     # Levels and trend ----------------------------------------------------------
     out = dm.td_setup_trend(df)
