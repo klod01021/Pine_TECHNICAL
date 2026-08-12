@@ -35,13 +35,18 @@ buyComplete = buySetup == setupLen
 sellComplete = sellSetup == setupLen
 
 // --- TDST levels ------------------------------------------------------------
+// Stateful ta.* functions must be evaluated on every bar, so the rolling
+// extremes live at global scope and are only read inside the branches.
+setupHighest = ta.highest(high, setupLen)
+setupLowest = ta.lowest(low, setupLen)
+
 var float resistance = na
 var float support = na
 
 if buyComplete
-    resistance := ta.highest(high, setupLen)
+    resistance := setupHighest
 if sellComplete
-    support := ta.lowest(low, setupLen)
+    support := setupLowest
 
 resistanceBroken = not na(resistance) and close > resistance
 supportBroken = not na(support) and close < support

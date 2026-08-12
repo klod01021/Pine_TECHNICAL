@@ -61,7 +61,10 @@ script instead of many, then toggle the tools you want from its settings.
 |---|---|
 | `pine/all_oscillators.pine` | All 8 oscillators (DeMarker, DeMarker II, Pressure Ratio, TDREI, POQ, Alignment, ROC, TD Oscillator) — each toggleable, normalized to one 0–100 pane |
 | `pine/all_sequential.pine` | TD Setup, classic Countdown, TD Combo and Ultimate qualifiers on one chart |
-| `pine/all_levels_trend.pine` | TDST, TD Lines, TD MA I/II, TD Range Projection, TD Retracements and DeMark Trendline on one chart |
+| `pine/all_levels_trend.pine` | TDST, TD Lines, TD MA I/II, TD Range Projection, TD Retracements, DeMark Trendline and TD D-Wave on one chart |
+
+Between them the three suites cover all 20 indicators, so you never need to
+add more than these three scripts to a chart.
 
 ## Use in TradingView
 
@@ -100,9 +103,11 @@ cd python && python3 self_test.py   # all 20 indicators over synthetic data
 ```
 
 `tools/lint_pine.py` catches reserved words used as identifiers, wrong
-version annotations, unbalanced brackets, bad indentation and v5-era
-function names. It is not a compiler — TradingView has no offline one — but
-it prevents the obvious breakage.
+version annotations, unbalanced brackets, bad indentation, v5-era function
+names, stateful `ta.*` calls trapped inside conditional blocks, and `ta.*`
+length arguments that are function parameters (`series int` where a
+`simple int` is required). It is not a compiler — TradingView has no offline
+one — but it prevents the breakage that is detectable by inspection.
 
 ## Rules implemented
 

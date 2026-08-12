@@ -57,8 +57,45 @@ ASSIGN_RE = re.compile(
 )
 FUNC_RE = re.compile(r"^\s*([A-Za-z_]\w*)\s*\(([^)]*)\)\s*=>")
 
+# Stateful ta.* functions keep an internal buffer and must be evaluated on
+# every bar. Calling them inside an if/for body or a ternary branch silently
+# corrupts that buffer.
+STATEFUL_TA = (
+    "highest", "lowest", "sma", "ema", "rma", "wma", "vwma", "swma", "hma",
+    "atr", "rsi", "stdev", "variance", "mom", "change", "roc", "cum",
+    "crossover", "crossunder", "cross", "barssince", "valuewhen", "pivothigh",
+    "pivotlow", "linreg", "correlation", "percentrank", "percentile_linear_interpolation",
+    "bb", "bbw", "cci", "cmo", "dmi", "macd", "mfi", "sar", "stoch", "supertrend",
+    "tr", "tsi", "wpr", "falling", "rising", "median", "mode", "range",
+)
+STATEFUL_TA_RE = re.compile(r"\bta\.(" + "|".join(STATEFUL_TA) + r")\s*\(")
+# math.sum keeps a rolling window too.
+ROLLING_MATH_RE = re.compile(r"\bmath\.sum\s*\(")
+# ta.* length arguments must be `simple int`; a user function parameter is
+# always `series int`, so it can never be passed as one.
+LENGTH_TA_RE = re.compile(
+    r"\bta\.(?:highest|lowest|sma|ema|rma|wma|vwma|atr|rsi|stdev|linreg|mom|roc|"
+    r"percentrank|pivothigh|pivotlow)\s*\(\s*([^,()]+)\s*,\s*([A-Za-z_]\w*)\s*\)"
+)
+
 errors: list[str] = []
 warnings: list[str] = []
+
+
+def in_function_body(raw: list[str], lineno: int) -> bool:
+    """True when line ``lineno`` (1-based) sits inside a user function body.
+
+    A function body is safe for stateful ta.* calls provided the function is
+    itself invoked on every bar, which is the normal case; a conditional block
+    is not.
+    """
+    for i in range(lineno - 2, -1, -1):
+        candidate = strip_comment(raw[i])
+        if not candidate.strip():
+            continue
+        if len(candidate) - len(candidate.lstrip(" ")) == 0:
+            return bool(FUNC_RE.match(candidate))
+    return False
 
 
 def strip_comment(line: str) -> str:
@@ -105,6 +142,17 @@ def check_file(path: pathlib.Path) -> None:
     if len(decls) != 1:
         errors.append(f"{name}: expected exactly 1 indicator() declaration, found {len(decls)}")
 
+    # Collect user-function parameter names so we can spot them being passed
+    # as a ta.* length argument.
+    func_params: set[str] = set()
+    for l in raw:
+        fm = FUNC_RE.match(strip_comment(l))
+        if fm:
+            for param in fm.group(2).split(","):
+                pname = param.split("=")[0].strip()
+                if pname:
+                    func_params.add(pname)
+
     depth = 0
     for lineno, raw_line in enumerate(raw, start=1):
         line = strip_comment(raw_line)
@@ -127,6 +175,25 @@ def check_file(path: pathlib.Path) -> None:
             pattern = r"(?<![.\w])" + re.escape(bad)
             if re.search(pattern, line):
                 errors.append(f"{name}:{lineno}: '{bad}' is not valid in v6 ({hint})")
+
+        # --- stateful ta.* inside a conditional body ------------------------
+        # Indented code is inside an if/else/for body or a function; only the
+        # latter is safe, and only when the function is called every bar.
+        if indent > 0 and not in_function_body(raw, lineno):
+            hit = STATEFUL_TA_RE.search(line) or ROLLING_MATH_RE.search(line)
+            if hit:
+                errors.append(
+                    f"{name}:{lineno}: '{hit.group(0).rstrip('(')}' is stateful and must be "
+                    f"called on every bar; hoist it out of the conditional block"
+                )
+
+        # --- ta.* length argument that is a function parameter --------------
+        lm = LENGTH_TA_RE.search(line)
+        if lm and lm.group(2) in func_params:
+            errors.append(
+                f"{name}:{lineno}: length argument '{lm.group(2)}' is a function parameter "
+                f"(series int), but ta.* requires a simple int"
+            )
 
         # --- reserved words as identifiers ---------------------------------
         m = ASSIGN_RE.match(line)

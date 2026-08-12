@@ -44,17 +44,21 @@ var float sellCd8Close = na
 var float buyGuard = na
 var float sellGuard = na
 
+// Evaluated every bar; stateful ta.* calls cannot live inside a branch.
+setupHighest = ta.highest(high, setupLen)
+setupLowest = ta.lowest(low, setupLen)
+
 if buyComplete
     buyActive := true
     buyCd := 0
     buyCd8Close := na
-    buyGuard := ta.highest(high, setupLen)
+    buyGuard := setupHighest
     sellActive := false
 if sellComplete
     sellActive := true
     sellCd := 0
     sellCd8Close := na
-    sellGuard := ta.lowest(low, setupLen)
+    sellGuard := setupLowest
     buyActive := false
 
 if buyActive and not na(buyGuard) and close > buyGuard

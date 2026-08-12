@@ -54,6 +54,11 @@ var float sellCd8Close = na
 var float buyGuard = na
 var float sellGuard = na
 
+// Stateful ta.* functions must run on every bar, so the rolling extremes are
+// computed here and only read inside the conditional branches below.
+setupHighest = ta.highest(high, setupLen)
+setupLowest = ta.lowest(low, setupLen)
+
 bool buyCancelled = false
 bool sellCancelled = false
 
@@ -61,7 +66,7 @@ if buyComplete
     buyActive := true
     buyCd := 0
     buyCd8Close := na
-    buyGuard := ta.highest(high, setupLen)
+    buyGuard := setupHighest
     if cancelOnOpposite and sellActive
         sellActive := false
         sellCancelled := true
@@ -69,7 +74,7 @@ if sellComplete
     sellActive := true
     sellCd := 0
     sellCd8Close := na
-    sellGuard := ta.lowest(low, setupLen)
+    sellGuard := setupLowest
     if cancelOnOpposite and buyActive
         buyActive := false
         buyCancelled := true

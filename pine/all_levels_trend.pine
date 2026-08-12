@@ -26,6 +26,10 @@ showRangeProj = input.bool(false, "Projected high/low", group="TD Range Projecti
 showRetr = input.bool(false, "Retracement magnets", group="TD Retracements")
 lookback = input.int(100, "Swing lookback", minval=2, group="TD Retracements")
 
+showWave = input.bool(false, "TD D-Wave count", group="TD D-Wave")
+waveLeft = input.int(5, "Wave pivot left bars", minval=1, group="TD D-Wave")
+waveRight = input.int(5, "Wave pivot right bars", minval=1, group="TD D-Wave")
+
 // ---------------------------------------------------------------------------
 // TD Setup (feeds TDST) — resets on a failed or equal comparison
 // ---------------------------------------------------------------------------
@@ -54,13 +58,18 @@ sellComplete = sellSetup == setupLen
 // TDST — a completed BUY setup defines RESISTANCE at the highest high of its
 // nine bars; a completed SELL setup defines SUPPORT at the lowest low.
 // ---------------------------------------------------------------------------
+// Stateful ta.* functions must be evaluated on every bar, so the rolling
+// extremes are computed here and only read inside the branches.
+setupHighest = ta.highest(high, setupLen)
+setupLowest = ta.lowest(low, setupLen)
+
 var float tdstResistance = na
 var float tdstSupport = na
 
 if buyComplete
-    tdstResistance := ta.highest(high, setupLen)
+    tdstResistance := setupHighest
 if sellComplete
-    tdstSupport := ta.lowest(low, setupLen)
+    tdstSupport := setupLowest
 
 resistanceBroken = not na(tdstResistance) and close > tdstResistance
 supportBroken = not na(tdstSupport) and close < tdstSupport
@@ -158,6 +167,83 @@ plot(showRetr ? swingLow + swingRange * 0.382 : na, "Up 38.2%", color=color.new(
 plot(showRetr ? swingLow + swingRange * 0.618 : na, "Up 61.8%", color=color.new(color.teal, 0), style=plot.style_linebr)
 plot(showRetr ? swingHigh - swingRange * 0.382 : na, "Down 38.2%", color=color.new(color.orange, 40), style=plot.style_linebr)
 plot(showRetr ? swingHigh - swingRange * 0.618 : na, "Down 61.8%", color=color.new(color.orange, 0), style=plot.style_linebr)
+
+// ---------------------------------------------------------------------------
+// TD D-Wave — DeMark's mechanical Elliott-style count over its own pivot set,
+// kept separate from the TD Line pivots because it uses a wider swing filter.
+// ---------------------------------------------------------------------------
+wph = ta.pivothigh(high, waveLeft, waveRight)
+wpl = ta.pivotlow(low, waveLeft, waveRight)
+
+var array<int> wBar = array.new<int>()
+var array<float> wPrice = array.new<float>()
+var array<bool> wIsHigh = array.new<bool>()
+
+addWavePivot(price, isHigh) =>
+    int cnt = wBar.size()
+    if cnt > 0 and wIsHigh.get(cnt - 1) == isHigh
+        // Two pivots of the same kind in a row: keep the more extreme one.
+        if (isHigh and price > wPrice.get(cnt - 1)) or (not isHigh and price < wPrice.get(cnt - 1))
+            wBar.set(cnt - 1, bar_index - waveRight)
+            wPrice.set(cnt - 1, price)
+    else
+        wBar.push(bar_index - waveRight)
+        wPrice.push(price)
+        wIsHigh.push(isHigh)
+
+if showWave and not na(wph)
+    addWavePivot(wph, true)
+if showWave and not na(wpl)
+    addWavePivot(wpl, false)
+
+f_waveName(idx) =>
+    switch math.min(idx, 7)
+        0 => "1"
+        1 => "2"
+        2 => "3"
+        3 => "4"
+        4 => "5"
+        5 => "A"
+        6 => "B"
+        => "C"
+
+// Redraw the whole count on the last bar so the labels always reflect the
+// current pivot set.
+if showWave and barstate.islast and wBar.size() >= 2
+    bool upCount = wIsHigh.get(1)
+    int wIdx = 0
+    float waveOrigin = wPrice.get(0)
+    float w1Extreme = na
+    float w3Extreme = na
+
+    for p = 1 to wBar.size() - 1
+        float price = wPrice.get(p)
+        bool valid = true
+        if wIdx == 1          // Wave 2 may not exceed wave 1's origin
+            valid := upCount ? price >= waveOrigin : price <= waveOrigin
+            if valid
+                w1Extreme := wPrice.get(p - 1)
+        else if wIdx == 2     // Wave 3 must extend beyond wave 1's extreme
+            valid := na(w1Extreme) or (upCount ? price > w1Extreme : price < w1Extreme)
+            if valid
+                w3Extreme := price
+        else if wIdx == 3     // Wave 4 may not overlap wave 1
+            valid := na(w1Extreme) or (upCount ? price >= w1Extreme : price <= w1Extreme)
+        else if wIdx == 4     // Wave 5 must push beyond wave 3's extreme
+            valid := na(w3Extreme) or (upCount ? price > w3Extreme : price < w3Extreme)
+
+        line.new(wBar.get(p - 1), wPrice.get(p - 1), wBar.get(p), price, xloc=xloc.bar_index, color=color.new(color.blue, 40), width=1, style=line.style_dashed)
+
+        if valid and wIdx < 8
+            label.new(wBar.get(p), price, f_waveName(wIdx), xloc=xloc.bar_index, style=wIsHigh.get(p) ? label.style_label_down : label.style_label_up, color=color.new(color.blue, 20), textcolor=color.white, size=size.small)
+            wIdx := wIdx + 1
+        else
+            // A rule violation restarts the count from the previous pivot.
+            upCount := not wIsHigh.get(p)
+            waveOrigin := wPrice.get(p - 1)
+            wIdx := 1
+            w1Extreme := na
+            w3Extreme := na
 
 alertcondition(supportBroken and not supportBroken[1], "TDST support broken", "Price closed below TDST support")
 alertcondition(resistanceBroken and not resistanceBroken[1], "TDST resistance broken", "Price closed above TDST resistance")

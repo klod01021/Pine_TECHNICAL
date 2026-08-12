@@ -99,18 +99,31 @@ oscSlowMa = ta.sma(close, oscSlow)
 tdOsc = oscSlowMa == 0.0 ? 0.0 : 100.0 * (oscFastMa - oscSlowMa) / oscSlowMa
 
 // ---------------------------------------------------------------------------
-// Rescale unbounded oscillators onto the shared 0-100 band
+// Rescale unbounded oscillators onto the shared 0-100 band.
+//
+// These are written out rather than wrapped in a helper on purpose: a user
+// function's parameters are typed `series int`, while ta.lowest/ta.highest
+// require a `simple int` length, so passing the lookback into a function does
+// not compile. Calling them at global scope also guarantees they evaluate on
+// every bar, which stateful ta.* functions require.
 // ---------------------------------------------------------------------------
-f_rescale(src, lookback) =>
-    float lo = ta.lowest(src, lookback)
-    float hi = ta.highest(src, lookback)
-    (hi - lo) == 0.0 ? 50.0 : 100.0 * (src - lo) / (hi - lo)
-
 reiN = (rei + 100.0) / 2.0            // -100..100 maps directly onto 0..100
-poqN = f_rescale(poq, scaleLookback)
-alignN = f_rescale(alignment, scaleLookback)
-rocN = f_rescale(roc, scaleLookback)
-oscN = f_rescale(tdOsc, scaleLookback)
+
+poqLo = ta.lowest(poq, scaleLookback)
+poqHi = ta.highest(poq, scaleLookback)
+poqN = (poqHi - poqLo) == 0.0 ? 50.0 : 100.0 * (poq - poqLo) / (poqHi - poqLo)
+
+alignLo = ta.lowest(alignment, scaleLookback)
+alignHi = ta.highest(alignment, scaleLookback)
+alignN = (alignHi - alignLo) == 0.0 ? 50.0 : 100.0 * (alignment - alignLo) / (alignHi - alignLo)
+
+rocLo = ta.lowest(roc, scaleLookback)
+rocHi = ta.highest(roc, scaleLookback)
+rocN = (rocHi - rocLo) == 0.0 ? 50.0 : 100.0 * (roc - rocLo) / (rocHi - rocLo)
+
+oscLo = ta.lowest(tdOsc, scaleLookback)
+oscHi = ta.highest(tdOsc, scaleLookback)
+oscN = (oscHi - oscLo) == 0.0 ? 50.0 : 100.0 * (tdOsc - oscLo) / (oscHi - oscLo)
 
 // Raw value of the focus oscillator, for the data window and shading.
 focusRaw = switch focus
