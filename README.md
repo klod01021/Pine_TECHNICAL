@@ -52,12 +52,24 @@ line up bar-for-bar given the same OHLC data.
 |---|---|---|---|
 | 20 | TD D-Wave | `td_d_wave()` | `td_d_wave.pine` |
 
+## Combined suite scripts (easiest way to start)
+
+For ease of use, three scripts bundle the indicators by family — add one
+script instead of many, then toggle the tools you want from its settings.
+
+| Suite script | Bundles |
+|---|---|
+| `pine/all_oscillators.pine` | All 8 oscillators (DeMarker, DeMarker II, Pressure Ratio, TDREI, POQ, Alignment, ROC, TD Oscillator) — each toggleable, normalized to one 0–100 pane |
+| `pine/all_sequential.pine` | TD Setup, classic Countdown, TD Combo and Ultimate qualifiers on one chart |
+| `pine/all_levels_trend.pine` | TDST, TD Lines, TD MA I/II, TD Range Projection, TD Retracements and DeMark Trendline on one chart |
+
 ## Use in TradingView
 
 1. Open the [Pine Editor](https://www.tradingview.com/pine-editor/) on
    TradingView.
-2. Open any file from [`pine/`](pine), copy its contents, paste into the
-   editor, and click **Add to chart**.
+2. Open any file from [`pine/`](pine) (the three `all_*.pine` suites are the
+   easiest starting point), copy its contents, paste into the editor, and
+   click **Add to chart**.
 3. Each script is `//@version=6` and self-contained — no libraries needed.
 
 ## Use in Python

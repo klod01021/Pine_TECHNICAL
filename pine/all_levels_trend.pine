@@ -1,0 +1,158 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// DeMark Levels & Trend Suite — TDST, TD Lines, TD Moving Averages,
+// TD Range Projection, TD Retracements and the DeMark Trendline on one chart.
+// Each tool can be toggled independently.
+//@version=6
+indicator("DeMark Levels & Trend Suite", shorttitle="DeM Levels", overlay=true, timeframe="", timeframe_gaps=true, max_lines_count=500, max_labels_count=500)
+
+// ---------------------------------------------------------------------------
+// Inputs
+// ---------------------------------------------------------------------------
+grp = "TDST"
+showTdst = input.bool(true, "TDST levels", group=grp)
+setupLen = input.int(9, "Setup Length", minval=1, group=grp)
+cmp = input.int(4, "Comparison Bars", minval=1, group=grp)
+
+grp2 = "TD Lines"
+showTdLines = input.bool(true, "TD Supply/Demand lines", group=grp2)
+left = input.int(1, "TD Point Left Bars", minval=1, group=grp2)
+right = input.int(1, "TD Point Right Bars", minval=1, group=grp2)
+
+grp3 = "TD Moving Average"
+showMa = input.bool(true, "TD MA I/II", group=grp3)
+fastLen = input.int(5, "TD MA I Length", minval=1, group=grp3)
+slowLen = input.int(13, "TD MA II Length", minval=1, group=grp3)
+
+grp4 = "TD Range Projection"
+showRangeProj = input.bool(false, "Projected High/Low", group=grp4)
+
+grp5 = "TD Retracements"
+showRetr = input.bool(false, "Retracement magnets", group=grp5)
+lookback = input.int(100, "Swing Lookback", minval=2, group=grp5)
+
+grp6 = "DeMark Trendline"
+showTl = input.bool(true, "Qualified trendlines", group=grp6)
+
+// ---------------------------------------------------------------------------
+// TD Setup (feeds TDST)
+// ---------------------------------------------------------------------------
+var int buySetup = 0
+var int sellSetup = 0
+if close < close[cmp]
+    buySetup += 1
+    sellSetup := 0
+else if close > close[cmp]
+    sellSetup += 1
+    buySetup := 0
+if buySetup > setupLen
+    buySetup := 1
+if sellSetup > setupLen
+    sellSetup := 1
+
+// ---------------------------------------------------------------------------
+// TDST support / resistance
+// ---------------------------------------------------------------------------
+var float tdstSupport = na
+var float tdstResistance = na
+if buySetup == setupLen
+    tdstSupport := ta.lowest(low, setupLen)
+if sellSetup == setupLen
+    tdstResistance := ta.highest(high, setupLen)
+
+tdstSupportBroken = false
+tdstResistanceBroken = false
+if not na(tdstSupport) and close < tdstSupport
+    tdstSupportBroken := true
+    tdstSupport := na
+if not na(tdstResistance) and close > tdstResistance
+    tdstResistanceBroken := true
+    tdstResistance := na
+
+plot(showTdst ? tdstSupport : na, "TDST Support", color=color.new(color.green, 0), style=plot.style_linebr, linewidth=2)
+plot(showTdst ? tdstResistance : na, "TDST Resistance", color=color.new(color.red, 0), style=plot.style_linebr, linewidth=2)
+
+// ---------------------------------------------------------------------------
+// TD Points -> TD Lines and DeMark Trendline share the same pivot stack
+// ---------------------------------------------------------------------------
+ph = ta.pivothigh(high, left, right)
+pl = ta.pivotlow(low, left, right)
+
+var array<float> hiPrice = array.new<float>()
+var array<int> hiBar = array.new<int>()
+var array<float> loPrice = array.new<float>()
+var array<int> loBar = array.new<int>()
+
+if not na(ph)
+    hiPrice.push(ph)
+    hiBar.push(bar_index - right)
+    if hiPrice.size() > 4
+        hiPrice.shift()
+        hiBar.shift()
+if not na(pl)
+    loPrice.push(pl)
+    loBar.push(bar_index - right)
+    if loPrice.size() > 4
+        loPrice.shift()
+        loBar.shift()
+
+var line demandLine = na
+var line supplyLine = na
+
+if (showTdLines or showTl) and loPrice.size() >= 2
+    line.delete(demandLine)
+    int n = loPrice.size()
+    demandLine := line.new(loBar.get(n - 2), loPrice.get(n - 2), loBar.get(n - 1), loPrice.get(n - 1), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.green, 0), width=2)
+
+if (showTdLines or showTl) and hiPrice.size() >= 2
+    line.delete(supplyLine)
+    int n2 = hiPrice.size()
+    supplyLine := line.new(hiBar.get(n2 - 2), hiPrice.get(n2 - 2), hiBar.get(n2 - 1), hiPrice.get(n2 - 1), xloc=xloc.bar_index, extend=extend.right, color=color.new(color.red, 0), width=2)
+
+// DeMark Trendline projections (one bar ahead) + break markers.
+demandNow = showTl and loPrice.size() >= 2 ? line.get_price(demandLine, bar_index) : na
+supplyNow = showTl and hiPrice.size() >= 2 ? line.get_price(supplyLine, bar_index) : na
+demandSlope = showTl and loPrice.size() >= 2 ? demandNow - line.get_price(demandLine, bar_index - 1) : na
+supplySlope = showTl and hiPrice.size() >= 2 ? supplyNow - line.get_price(supplyLine, bar_index - 1) : na
+
+plot(showTl and loPrice.size() >= 2 ? demandNow + demandSlope : na, "Demand Projection", color=color.new(color.green, 50), style=plot.style_circles, offset=1)
+plot(showTl and hiPrice.size() >= 2 ? supplyNow + supplySlope : na, "Supply Projection", color=color.new(color.red, 50), style=plot.style_circles, offset=1)
+
+demandBreak = showTl and not na(demandNow) and close < demandNow
+supplyBreak = showTl and not na(supplyNow) and close > supplyNow
+plotshape(demandBreak, "Demand Break", style=shape.xcross, location=location.belowbar, color=color.red, size=size.tiny)
+plotshape(supplyBreak, "Supply Break", style=shape.xcross, location=location.abovebar, color=color.green, size=size.tiny)
+
+// ---------------------------------------------------------------------------
+// TD Moving Average I / II
+// ---------------------------------------------------------------------------
+ma1 = ta.sma(close, fastLen)
+ma2 = ta.sma(close, slowLen)
+plot(showMa ? ma1 : na, "TD MA I", color=color.new(color.blue, 0), linewidth=2)
+plot(showMa ? ma2 : na, "TD MA II", color=color.new(color.orange, 0), linewidth=2)
+
+// ---------------------------------------------------------------------------
+// TD Range Projection
+// ---------------------------------------------------------------------------
+upBar = close >= open
+projHigh = upBar ? 2.0 * high - low : 2.0 * high - close
+projLow = upBar ? 2.0 * low - high : 2.0 * low - close
+plot(showRangeProj ? projHigh : na, "Projected High", color=color.new(color.red, 40), style=plot.style_linebr, offset=1)
+plot(showRangeProj ? projLow : na, "Projected Low", color=color.new(color.green, 40), style=plot.style_linebr, offset=1)
+
+// ---------------------------------------------------------------------------
+// TD Retracements
+// ---------------------------------------------------------------------------
+swingHigh = ta.highest(high, lookback)
+swingLow = ta.lowest(low, lookback)
+swingRange = swingHigh - swingLow
+plot(showRetr ? swingHigh : na, "Swing High", color=color.new(color.red, 30), style=plot.style_linebr)
+plot(showRetr ? swingLow : na, "Swing Low", color=color.new(color.green, 30), style=plot.style_linebr)
+plot(showRetr ? swingLow + swingRange * 0.382 : na, "Up 38.2%", color=color.new(color.teal, 40), style=plot.style_linebr)
+plot(showRetr ? swingLow + swingRange * 0.618 : na, "Up 61.8%", color=color.new(color.teal, 0), style=plot.style_linebr)
+plot(showRetr ? swingHigh - swingRange * 0.382 : na, "Down 38.2%", color=color.new(color.orange, 40), style=plot.style_linebr)
+plot(showRetr ? swingHigh - swingRange * 0.618 : na, "Down 61.8%", color=color.new(color.orange, 0), style=plot.style_linebr)
+
+alertcondition(tdstSupportBroken, "TDST Support Broken", "Price closed below TDST support")
+alertcondition(tdstResistanceBroken, "TDST Resistance Broken", "Price closed above TDST resistance")
+alertcondition(demandBreak, "Demand Line Broken", "Price closed through the demand trendline")
+alertcondition(supplyBreak, "Supply Line Broken", "Price closed through the supply trendline")

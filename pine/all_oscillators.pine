@@ -1,0 +1,136 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// DeMark Oscillator Suite — DeMarker, DeMarker II, TD Pressure Ratio, TDREI,
+// TD POQ, TD Alignment, TD ROC and TD Oscillator on one pane.
+//
+// The oscillators use different scales (0-100 vs unbounded), so each one can
+// be toggled on/off and is normalized to a common 0-100 band for display.
+// The raw value of the single "focus" oscillator is shown in the data window.
+//@version=6
+indicator("DeMark Oscillator Suite", shorttitle="DeM Oscillators", overlay=false, timeframe="", timeframe_gaps=true, max_lines_count=500)
+
+// ---------------------------------------------------------------------------
+// Inputs
+// ---------------------------------------------------------------------------
+focusOptions = input.string("DeMarker", "Focus oscillator (plotted at full size)", options=["DeMarker", "DeMarker II", "TD Pressure Ratio", "TDREI", "TD POQ", "TD Alignment", "TD ROC", "TD Oscillator"])
+
+showDem = input.bool(true, "DeMarker", inline="osc1")
+demLen = input.int(14, "Length", minval=1, inline="osc1")
+showDem2 = input.bool(false, "DeMarker II", inline="osc2")
+dem2Len = input.int(8, "Length", minval=1, inline="osc2")
+showPr = input.bool(false, "TD Pressure Ratio", inline="osc3")
+prLen = input.int(13, "Length", minval=1, inline="osc3")
+showRei = input.bool(false, "TDREI", inline="osc4")
+reiLen = input.int(5, "Length", minval=1, inline="osc4")
+showPoq = input.bool(false, "TD POQ", inline="osc5")
+poqFast = input.int(3, "Fast", minval=1, inline="osc5")
+poqSlow = input.int(8, "Slow", minval=1, inline="osc5b")
+showAlign = input.bool(false, "TD Alignment", inline="osc6")
+alFast = input.int(5, "Fast", minval=1, inline="osc6")
+alSlow = input.int(13, "Slow", minval=1, inline="osc6b")
+showRoc = input.bool(false, "TD ROC", inline="osc7")
+rocLen = input.int(5, "Length", minval=1, inline="osc7")
+showOsc = input.bool(false, "TD Oscillator", inline="osc8")
+oscFast = input.int(3, "Fast", minval=1, inline="osc8")
+oscSlow = input.int(9, "Slow", minval=1, inline="osc8b")
+
+obLevel = input.float(70.0, "Overbought")
+osLevel = input.float(30.0, "Oversold")
+
+// ---------------------------------------------------------------------------
+// Calculations (each matches its standalone script)
+// ---------------------------------------------------------------------------
+
+// DeMarker
+demHigh = math.max(high - high[1], 0.0)
+demLow = math.max(low[1] - low, 0.0)
+demSumH = ta.sma(demHigh, demLen)
+demSumL = ta.sma(demLow, demLen)
+dem = (demSumH + demSumL) == 0.0 ? 0.0 : 100.0 * demSumH / (demSumH + demSumL)
+
+// DeMarker II
+midpoint = (high + low) / 2.0
+up2 = math.max(high - midpoint, 0.0) * (close >= midpoint ? 1.0 : 0.0)
+dn2 = math.max(midpoint - low, 0.0) * (close < midpoint ? 1.0 : 0.0)
+sumUp2 = ta.sma(up2, dem2Len)
+sumDn2 = ta.sma(dn2, dem2Len)
+dem2 = (sumUp2 + sumDn2) == 0.0 ? 0.0 : 100.0 * sumUp2 / (sumUp2 + sumDn2)
+
+// TD Pressure Ratio
+trueRange = math.max(math.max(high - low, math.abs(high - close[1])), math.abs(low - close[1]))
+buying = math.max(close - low, 0.0) * trueRange
+selling = math.max(high - close, 0.0) * trueRange
+sumBuy = ta.sma(buying, prLen)
+sumSell = ta.sma(selling, prLen)
+prRatio = (sumBuy + sumSell) == 0.0 ? 0.0 : 100.0 * sumBuy / (sumBuy + sumSell)
+
+// TD Range Expansion Index
+upCond = (high[5] >= low[6]) or (high[6] >= low[5])
+dnCond = (low[5] <= high[6]) or (low[6] <= high[5])
+upVal = (high - high[2]) + (low - low[2])
+dnVal = (high[1] - high[3]) + (low[1] - low[3])
+float expansion = 0.0
+if upCond and dnCond
+    expansion := upVal + dnVal
+else if upCond
+    expansion := upVal
+else if dnCond
+    expansion := dnVal
+reiNum = math.sum(expansion, reiLen)
+reiDen = math.sum(math.abs(expansion), reiLen)
+rei = reiDen == 0.0 ? 0.0 : 100.0 * reiNum / reiDen   // -100..+100
+
+// TD POQ
+poqFastEma = ta.ema(close, poqFast)
+poqSlowEma = ta.ema(close, poqSlow)
+poq = poqSlowEma == 0.0 ? 0.0 : 100.0 * (poqFastEma - poqSlowEma) / poqSlowEma
+
+// TD Alignment
+alFastMa = ta.sma(close, alFast)
+alSlowMa = ta.sma(close, alSlow)
+alignment = alSlowMa == 0.0 ? 0.0 : 100.0 * (alFastMa - alSlowMa) / alSlowMa
+
+// TD ROC
+roc = close[rocLen] == 0.0 ? 0.0 : 100.0 * (close - close[rocLen]) / close[rocLen]
+
+// TD Oscillator
+oscFastMa = ta.sma(close, oscFast)
+oscSlowMa = ta.sma(close, oscSlow)
+tdOsc = oscSlowMa == 0.0 ? 0.0 : 100.0 * (oscFastMa - oscSlowMa) / oscSlowMa
+
+// ---------------------------------------------------------------------------
+// Normalization to a shared 0-100 band
+// ---------------------------------------------------------------------------
+// Bounded oscillators (0-100) pass through; unbounded ones are scaled with a
+// rolling min/max so their *shape* is comparable on one pane.
+f_scale01(series) =>
+    float lo = ta.lowest(series, 200)
+    float hi = ta.highest(series, 200)
+    (hi - lo) == 0.0 ? 50.0 : 100.0 * (series - lo) / (hi - lo)
+
+reiN = (rei + 100.0) / 2.0       // TDREI is already bounded, shift -100..100 -> 0..100
+poqN = f_scale01(poq)
+alignN = f_scale01(alignment)
+rocN = f_scale01(roc)
+oscN = f_scale01(tdOsc)
+
+// Raw focus value (full-scale line + data window).
+focusRaw = focusOptions == "DeMarker" ? dem : focusOptions == "DeMarker II" ? dem2 : focusOptions == "TD Pressure Ratio" ? prRatio : focusOptions == "TDREI" ? rei : focusOptions == "TD POQ" ? poq : focusOptions == "TD Alignment" ? alignment : focusOptions == "TD ROC" ? roc : tdOsc
+
+// ---------------------------------------------------------------------------
+// Plots
+// ---------------------------------------------------------------------------
+plot(showDem ? dem : na, "DeMarker", color=color.new(color.blue, 0), linewidth=2)
+plot(showDem2 ? dem2 : na, "DeMarker II", color=color.new(color.navy, 0))
+plot(showPr ? prRatio : na, "TD Pressure Ratio", color=color.new(color.purple, 0))
+plot(showRei ? reiN : na, "TDREI (scaled)", color=color.new(color.teal, 0))
+plot(showPoq ? poqN : na, "TD POQ (scaled)", color=color.new(color.orange, 0))
+plot(showAlign ? alignN : na, "TD Alignment (scaled)", color=color.new(color.fuchsia, 0))
+plot(showRoc ? rocN : na, "TD ROC (scaled)", color=color.new(color.maroon, 0))
+plot(showOsc ? oscN : na, "TD Oscillator (scaled)", color=color.new(color.gray, 0))
+
+plot(obLevel, "Overbought", color=color.new(color.red, 50))
+plot(osLevel, "Oversold", color=color.new(color.green, 50))
+hline(50, "Mid", color=color.new(color.gray, 70))
+
+// Focus background shading for bounded oscillators.
+bgcolor((focusOptions == "DeMarker" or focusOptions == "DeMarker II" or focusOptions == "TD Pressure Ratio") and focusRaw > obLevel ? color.new(color.red, 92) : (focusOptions == "DeMarker" or focusOptions == "DeMarker II" or focusOptions == "TD Pressure Ratio") and focusRaw < osLevel ? color.new(color.green, 92) : na)
