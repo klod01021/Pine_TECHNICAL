@@ -1,0 +1,707 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+//
+// ═════════════════════════════════════════════════════════════════════════════
+//  WYCKOFF METHOD
+//
+//  1. Builds a noise-filtered swing (zig-zag) skeleton of price.
+//  2. Finds the trading range that still describes the present: a climax
+//     (SC / BC) after a real approach, an automatic rally or reaction (AR),
+//     then the tests, spring / UTAD and SOS / SOW that follow.
+//  3. Labels the classic events, names the phase (A-E), and draws the creek
+//     (resistance) and ice (support) of the range.
+//  4. Projects the cause-and-effect targets from the range height and from a
+//     horizontal count of the bars spent inside it, and marks the price that
+//     would invalidate the reading.
+//  5. Flags effort-vs-result on the bars: climax (high volume, wide spread)
+//     and absorption (high volume, narrow spread).
+//
+//  Read before trading it: Wyckoff labelling is not a solved problem. Two
+//  analysts will mark the same chart differently, and so will this script
+//  when you change the pivot depth. Treat the output as a structured, rule
+//  checked hypothesis - not as a prediction. Springs and UTAD are the most
+//  mechanical pieces; phase B tests are the noisiest.
+// ═════════════════════════════════════════════════════════════════════════════
+
+indicator("Wyckoff Method", "Wyckoff", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 200, max_bars_back = 500)
+
+// ─────────────────────────────────  inputs  ──────────────────────────────────
+const string G_DET = "Swing detection"
+const string G_WCK = "Wyckoff rules"
+const string G_VOL = "Effort vs result"
+const string G_DSP = "Display"
+const string G_TGT = "Targets and alerts"
+
+int    depthIn     = input.int(12, "Pivot depth (bars each side)", minval = 2, maxval = 200, group = G_DET, tooltip = "A swing is only recognised once 'depth' bars on both sides fail to exceed it. 8-12 for intraday, 12-20 for daily, smaller on weekly/monthly charts that show few bars.")
+string filtMode    = input.string("ATR", "Noise filter", options = ["ATR", "Percent", "None"], group = G_DET)
+float  atrMult     = input.float(1.5, "Minimum swing = ATR x", minval = 0.0, step = 0.1, group = G_DET)
+int    atrLen      = input.int(14, "ATR length", minval = 1, group = G_DET)
+float  pctMove     = input.float(2.0, "Minimum swing (%)", minval = 0.0, step = 0.1, group = G_DET)
+bool   useProv     = input.bool(true, "Include the live, unconfirmed swing", group = G_DET, tooltip = "Adds the running high/low since the last confirmed pivot so the event in progress is visible. Provisional labels are marked with '?'.")
+int    maxLook     = input.int(25, "Swings to scan for a campaign", minval = 6, maxval = 55, group = G_DET)
+
+float  minAppMult  = input.float(2.0, "Minimum approach = ATR x", minval = 0.5, step = 0.1, group = G_WCK, tooltip = "The decline into a selling climax (or rally into a buying climax) must be at least this many ATRs, so a quiet pullback is not labelled as a campaign.")
+float  minArFrac   = input.float(0.30, "Minimum AR as a fraction of the approach", minval = 0.10, maxval = 0.90, step = 0.05, group = G_WCK, tooltip = "The automatic rally / reaction has to retrace at least this fraction of the approach. Too small and the climax did not stop the trend.")
+float  maxArFrac   = input.float(0.95, "Maximum AR as a fraction of the approach", minval = 0.50, maxval = 1.50, step = 0.05, group = G_WCK, tooltip = "An AR that retraces the whole approach is a V-reversal, not a trading range. Raise this if you want those labelled too.")
+float  stZone      = input.float(0.45, "Secondary test zone (fraction of range)", minval = 0.15, maxval = 0.80, step = 0.05, group = G_WCK, tooltip = "A secondary test of support (accumulation) or supply (distribution) must finish in this fraction of the range nearest the climax.")
+float  springMax   = input.float(0.40, "Spring / UTAD max penetration (fraction of range)", minval = 0.05, maxval = 0.80, step = 0.05, group = G_WCK, tooltip = "A spring or UTAD may pierce the range by up to this fraction of its height and still count, provided the next swing recovers back inside. Deeper than that is a genuine break.")
+float  brkTol      = input.float(0.02, "Breakout tolerance (fraction of range)", minval = 0.0, maxval = 0.20, step = 0.01, group = G_WCK)
+int    minConf     = input.int(0, "Minimum confidence to accept (%)", minval = 0, maxval = 95, group = G_WCK)
+
+int    volLen      = input.int(20, "Volume / spread average length", minval = 5, group = G_VOL)
+float  erEffort    = input.float(1.6, "Absorption: volume multiple", minval = 1.0, step = 0.1, group = G_VOL)
+float  erResult    = input.float(0.70, "Absorption: spread multiple (max)", minval = 0.2, maxval = 1.0, step = 0.05, group = G_VOL)
+float  climaxVol   = input.float(2.0, "Climax: volume multiple", minval = 1.0, step = 0.1, group = G_VOL)
+float  climaxSpr   = input.float(1.5, "Climax: spread multiple (min)", minval = 1.0, step = 0.1, group = G_VOL)
+
+bool   showZig     = input.bool(true, "Draw the swing skeleton", group = G_DSP)
+bool   showEv      = input.bool(true, "Label Wyckoff events", group = G_DSP)
+bool   showBox     = input.bool(true, "Draw the trading-range box", group = G_DSP)
+bool   showTgt     = input.bool(true, "Project cause-and-effect targets", group = G_DSP)
+bool   showER      = input.bool(true, "Mark absorption and climax bars", group = G_DSP)
+bool   showBars    = input.bool(false, "Colour bars by effort vs result", group = G_DSP)
+bool   showTbl     = input.bool(true, "Show the campaign panel", group = G_DSP)
+string szEv        = input.string("small", "Event label size", options = ["tiny", "small", "normal", "large"], group = G_DSP)
+color  cAcc        = input.color(#00897b, "Accumulation colour", group = G_DSP)
+color  cDist       = input.color(#c62828, "Distribution colour", group = G_DSP)
+color  cZig        = input.color(#78909c, "Swing skeleton colour", group = G_DSP)
+color  cIce        = input.color(#1976d2, "Ice (support) colour", group = G_DSP)
+color  cCreek      = input.color(#ef6c00, "Creek (resistance) colour", group = G_DSP)
+
+int    projBars    = input.int(40, "Projection length (bars)", minval = 5, maxval = 300, group = G_TGT)
+float  horizDiv    = input.float(3.0, "Horizontal count divisor", minval = 1.0, step = 0.5, group = G_TGT, tooltip = "Cause bars x ATR / this divisor, measured from the ice (accumulation) or the creek (distribution). A common PnF-style approximation of the horizontal count.")
+color  cInv        = input.color(#d50000, "Invalidation colour", group = G_TGT)
+bool   alertsOn    = input.bool(true, "Fire alert() on a campaign change", group = G_TGT)
+
+int MAX_PIVOTS = 60
+int MAX_TAIL = 10
+
+// ──────────────────────────────────  types  ──────────────────────────────────
+type Pivot
+    int   bar
+    float price
+    int   dir
+    float vol = 0.0
+
+type Zig
+    array<Pivot> pv
+    bool  changed  = false
+    float runHi    = na
+    int   runHiBar = na
+    float runLo    = na
+    int   runLoBar = na
+
+type Event
+    int    pi
+    string code
+    bool   prov = false
+
+type Campaign
+    array<Event> ev
+    string kind      = "none"
+    string phase     = "none"
+    string title     = "No campaign"
+    int    start     = -1
+    int    last      = -1
+    float  ice       = na
+    float  creek     = na
+    float  conf      = 0.0
+    bool   spring    = false
+    bool   utad      = false
+    bool   sos       = false
+    bool   sow       = false
+    float  t1        = na
+    float  t2        = na
+    float  horiz     = na
+    float  inv       = na
+    int    causeBars = 0
+
+// ───────────────────────────────  small helpers  ─────────────────────────────
+szOf(string s) =>
+    s == "tiny" ? size.tiny : s == "small" ? size.small : s == "large" ? size.large : size.normal
+
+emptyCamp() =>
+    Campaign.new(array.new<Event>(), "none", "none", "No campaign", -1, -1, na, na, 0.0, false, false, false, false, na, na, na, na, 0)
+
+campTitle(string kind, string phase) =>
+    string name = kind == "accumulation" ? "Accumulation" : kind == "distribution" ? "Distribution" : ""
+    string extra = phase == "A" ? "Phase A — stopping the trend" : phase == "B" ? "Phase B — building cause" : phase == "C" ? "Phase C — the test" : phase == "D" ? "Phase D — leaving the range" : phase == "E" ? "Phase E — trend underway" : "in progress"
+    kind == "none" ? "No campaign" : name + ", " + extra
+
+markProv(Campaign c, int n, bool hasProv) =>
+    if hasProv and n > 0 and c.ev.size() > 0
+        for i = 0 to c.ev.size() - 1
+            Event e = c.ev.get(i)
+            if e.pi == n - 1
+                e.prov := true
+                c.ev.set(i, e)
+    c
+
+fillTargets(Campaign c, float atrv) =>
+    float height = c.creek - c.ice
+    if not na(height) and height > 0
+        if c.kind == "accumulation"
+            c.t1 := c.creek + height
+            c.t2 := c.creek + 1.618 * height
+            c.horiz := c.ice + (c.causeBars * atrv / horizDiv)
+        else if c.kind == "distribution"
+            c.t1 := c.ice - height
+            c.t2 := c.ice - 1.618 * height
+            c.horiz := c.creek - (c.causeBars * atrv / horizDiv)
+    c
+
+// ───────────────────────────  swing (zig-zag) engine  ────────────────────────
+method addPivot(Zig z, int b, float p, int d, float minMove, float vol) =>
+    int n = z.pv.size()
+    if n == 0
+        z.pv.push(Pivot.new(b, p, d, vol))
+        z.changed := true
+    else
+        Pivot lp = z.pv.get(n - 1)
+        if lp.dir == d
+            if (d == 1 and p > lp.price) or (d == -1 and p < lp.price)
+                lp.bar := b
+                lp.price := p
+                lp.vol := vol
+                z.changed := true
+        else if b > lp.bar and math.abs(p - lp.price) >= minMove
+            z.pv.push(Pivot.new(b, p, d, vol))
+            z.changed := true
+    if z.pv.size() > MAX_PIVOTS
+        Pivot drop = z.pv.shift()
+        drop.dir
+    z.changed
+
+method step(Zig z, int depth, float minMove, float ph, float pl, float wHi, float wLo, int oHi, int oLo, float volAt) =>
+    z.changed := false
+    int pb = bar_index - depth
+    if not na(ph)
+        z.addPivot(pb, ph, 1, minMove, volAt)
+    if not na(pl)
+        z.addPivot(pb, pl, -1, minMove, volAt)
+    if (z.changed or na(z.runHi)) and not na(oHi) and not na(oLo)
+        z.runHi := wHi
+        z.runHiBar := bar_index + oHi
+        z.runLo := wLo
+        z.runLoBar := bar_index + oLo
+    else
+        if high > z.runHi
+            z.runHi := high
+            z.runHiBar := bar_index
+        if low < z.runLo
+            z.runLo := low
+            z.runLoBar := bar_index
+    z.pv.size()
+
+buildWork(Zig z, bool withProv) =>
+    array<Pivot> w = array.copy(z.pv)
+    bool hp = false
+    int n = w.size()
+    if withProv and n > 0
+        Pivot lp = w.get(n - 1)
+        if lp.dir == -1 and not na(z.runHiBar) and z.runHiBar > lp.bar and z.runHi > lp.price
+            w.push(Pivot.new(z.runHiBar, z.runHi, 1, 0.0))
+            hp := true
+        else if lp.dir == 1 and not na(z.runLoBar) and z.runLoBar > lp.bar and z.runLo < lp.price
+            w.push(Pivot.new(z.runLoBar, z.runLo, -1, 0.0))
+            hp := true
+    [w, hp]
+
+// ──────────────────────────────  campaign tests  ─────────────────────────────
+tryAcc(array<Pivot> w, int scI, bool hasProv, float minApproach, float atrv) =>
+    int n = w.size()
+    Campaign c = emptyCamp()
+    bool ok = scI >= 1 and scI + 1 < n
+    if ok
+        ok := w.get(scI).dir == -1 and w.get(scI - 1).dir == 1 and w.get(scI + 1).dir == 1
+    float drop = 0.0
+    float rally = 0.0
+    float ice = na
+    float creek = na
+    if ok
+        drop := w.get(scI - 1).price - w.get(scI).price
+        rally := w.get(scI + 1).price - w.get(scI).price
+        ok := drop >= minApproach and rally >= drop * minArFrac and rally <= drop * maxArFrac
+    if ok
+        ice := w.get(scI).price
+        creek := w.get(scI + 1).price
+        ok := creek - ice > 0
+    if ok
+        array<Event> ev = array.new<Event>()
+        if scI >= 2 and w.get(scI - 2).dir == -1
+            float psDrop = w.get(scI - 1).price - w.get(scI - 2).price
+            if w.get(scI - 2).price > w.get(scI).price and psDrop >= drop * 0.25
+                ev.push(Event.new(scI - 2, "PS", false))
+        ev.push(Event.new(scI, "SC", false))
+        ev.push(Event.new(scI + 1, "AR", false))
+        int springI = -1
+        int sosI = -1
+        int stI = -1
+        int lpsI = -1
+        int last = scI + 1
+        string phase = "A"
+        bool failed = false
+        if scI + 2 <= n - 1
+            for j = scI + 2 to n - 1
+                if failed
+                    break
+                Pivot p = w.get(j)
+                float height = creek - ice
+                if height <= 0
+                    break
+                if p.dir == -1
+                    if p.price < ice - springMax * height
+                        failed := true
+                        break
+                    if p.price < ice
+                        bool recovered = (j + 1 < n and w.get(j + 1).dir == 1 and w.get(j + 1).price > ice) or (j == n - 1)
+                        if recovered
+                            ev.push(Event.new(j, "Spring", false))
+                            springI := j
+                            phase := "C"
+                            last := j
+                        else
+                            failed := true
+                            break
+                    else
+                        float loc = (p.price - ice) / height
+                        if sosI >= 0
+                            string code = p.price >= creek - 0.08 * height ? "BU" : "LPS"
+                            ev.push(Event.new(j, code, false))
+                            lpsI := j
+                            phase := "D"
+                            last := j
+                        else if springI >= 0
+                            ev.push(Event.new(j, "Test", false))
+                            phase := "C"
+                            last := j
+                        else if loc <= stZone or stI < 0
+                            ev.push(Event.new(j, "ST", false))
+                            if stI < 0
+                                stI := j
+                            phase := "B"
+                            last := j
+                        else
+                            last := j
+                            if phase == "A"
+                                phase := "B"
+                else
+                    if p.price > creek + brkTol * height
+                        bool nextFails = j + 1 < n and w.get(j + 1).dir == -1 and w.get(j + 1).price < creek
+                        if nextFails
+                            ev.push(Event.new(j, "UT", false))
+                            creek := p.price
+                            last := j
+                            if springI < 0 and sosI < 0
+                                phase := "B"
+                        else
+                            ev.push(Event.new(j, "SOS", false))
+                            sosI := j
+                            phase := "D"
+                            last := j
+                    else if p.price > creek
+                        if sosI < 0 and springI < 0
+                            creek := p.price
+                            last := j
+                        else if sosI >= 0
+                            ev.push(Event.new(j, "SOS", false))
+                            sosI := j
+                            last := j
+                            phase := "D"
+                        else
+                            last := j
+                    else
+                        if sosI >= 0 and (creek - p.price) <= 0.15 * height
+                            ev.push(Event.new(j, "BU", false))
+                            phase := "D"
+                            last := j
+                        else
+                            last := j
+                            if stI >= 0 and sosI < 0 and springI < 0
+                                phase := "B"
+        bool keep = not (failed and stI < 0 and springI < 0) and not (failed and sosI < 0 and springI < 0)
+        if keep and stI < 0 and springI < 0 and sosI < 0
+            keep := n - 1 - last <= 2
+        if keep
+            if sosI >= 0
+                for k = sosI + 1 to n - 1
+                    if w.get(k).dir == -1 and w.get(k).price > creek
+                        phase := "E"
+                        last := math.max(last, k)
+                        break
+                    if w.get(k).dir == -1
+                        last := math.max(last, k)
+            float conf = 30.0
+            if stI >= 0
+                conf += 12.0
+            if springI >= 0
+                conf += 18.0
+            if sosI >= 0
+                conf += 12.0
+            if lpsI >= 0
+                conf += 8.0
+            float arFrac = rally / drop
+            if arFrac >= 0.35 and arFrac <= 0.75
+                conf += 8.0
+            if w.get(scI).vol > 0 and stI >= 0 and w.get(stI).vol > 0 and w.get(stI).vol < w.get(scI).vol
+                conf += 12.0
+            if w.get(scI).vol > 0 and springI >= 0 and w.get(springI).vol > 0 and w.get(springI).vol < w.get(scI).vol
+                conf += 8.0
+            conf := math.min(conf, 100.0)
+            int causeBars = w.get(last).bar - w.get(scI).bar
+            float inv = springI >= 0 ? w.get(springI).price : ice
+            c := Campaign.new(ev, "accumulation", phase, campTitle("accumulation", phase), scI, last, ice, creek, conf, springI >= 0, false, sosI >= 0, false, na, na, na, inv, causeBars)
+            c := markProv(c, n, hasProv)
+            c := fillTargets(c, atrv)
+    c
+
+tryDist(array<Pivot> w, int bcI, bool hasProv, float minApproach, float atrv) =>
+    int n = w.size()
+    Campaign c = emptyCamp()
+    bool ok = bcI >= 1 and bcI + 1 < n
+    if ok
+        ok := w.get(bcI).dir == 1 and w.get(bcI - 1).dir == -1 and w.get(bcI + 1).dir == -1
+    float rise = 0.0
+    float reaction = 0.0
+    float ice = na
+    float creek = na
+    if ok
+        rise := w.get(bcI).price - w.get(bcI - 1).price
+        reaction := w.get(bcI).price - w.get(bcI + 1).price
+        ok := rise >= minApproach and reaction >= rise * minArFrac and reaction <= rise * maxArFrac
+    if ok
+        creek := w.get(bcI).price
+        ice := w.get(bcI + 1).price
+        ok := creek - ice > 0
+    if ok
+        array<Event> ev = array.new<Event>()
+        if bcI >= 2 and w.get(bcI - 2).dir == 1
+            float psRise = w.get(bcI - 2).price - w.get(bcI - 1).price
+            if w.get(bcI - 2).price < w.get(bcI).price and psRise >= rise * 0.25
+                ev.push(Event.new(bcI - 2, "PSY", false))
+        ev.push(Event.new(bcI, "BC", false))
+        ev.push(Event.new(bcI + 1, "AR", false))
+        int utadI = -1
+        int sowI = -1
+        int stI = -1
+        int lpsyI = -1
+        int last = bcI + 1
+        string phase = "A"
+        bool failed = false
+        if bcI + 2 <= n - 1
+            for j = bcI + 2 to n - 1
+                if failed
+                    break
+                Pivot p = w.get(j)
+                float height = creek - ice
+                if height <= 0
+                    break
+                if p.dir == 1
+                    if p.price > creek
+                        bool recovered = (j + 1 < n and w.get(j + 1).dir == -1 and w.get(j + 1).price < creek) or (j == n - 1)
+                        float penetration = p.price - creek
+                        if recovered and penetration <= springMax * height
+                            ev.push(Event.new(j, "UTAD", false))
+                            utadI := j
+                            phase := "C"
+                            last := j
+                        else
+                            failed := true
+                            break
+                    else
+                        float loc = (creek - p.price) / height
+                        if sowI >= 0
+                            ev.push(Event.new(j, "LPSY", false))
+                            lpsyI := j
+                            phase := "D"
+                            last := j
+                        else if utadI >= 0
+                            ev.push(Event.new(j, "Test", false))
+                            phase := "C"
+                            last := j
+                        else if loc <= stZone or stI < 0
+                            ev.push(Event.new(j, "ST", false))
+                            if stI < 0
+                                stI := j
+                            phase := "B"
+                            last := j
+                        else
+                            last := j
+                            if phase == "A"
+                                phase := "B"
+                else
+                    if p.price < ice - brkTol * height
+                        bool fullRec = j + 1 < n and w.get(j + 1).dir == 1 and w.get(j + 1).price > creek
+                        if fullRec
+                            last := j
+                        else
+                            ev.push(Event.new(j, "SOW", false))
+                            sowI := j
+                            phase := "D"
+                            last := j
+                    else if p.price < ice
+                        if sowI < 0 and utadI < 0
+                            ice := p.price
+                            last := j
+                        else if sowI >= 0
+                            ev.push(Event.new(j, "SOW", false))
+                            sowI := j
+                            last := j
+                            phase := "D"
+                        else
+                            last := j
+                    else
+                        last := j
+                        if stI >= 0 and sowI < 0 and utadI < 0
+                            phase := "B"
+        bool keep = not (failed and stI < 0 and utadI < 0) and not (failed and sowI < 0 and utadI < 0)
+        if keep and stI < 0 and utadI < 0 and sowI < 0
+            keep := n - 1 - last <= 2
+        if keep
+            if sowI >= 0
+                for k = sowI + 1 to n - 1
+                    if w.get(k).dir == 1 and w.get(k).price < ice
+                        phase := "E"
+                        last := math.max(last, k)
+                        break
+                    if w.get(k).dir == 1
+                        last := math.max(last, k)
+            float conf = 30.0
+            if stI >= 0
+                conf += 12.0
+            if utadI >= 0
+                conf += 18.0
+            if sowI >= 0
+                conf += 12.0
+            if lpsyI >= 0
+                conf += 8.0
+            float arFrac = reaction / rise
+            if arFrac >= 0.35 and arFrac <= 0.75
+                conf += 8.0
+            if w.get(bcI).vol > 0 and stI >= 0 and w.get(stI).vol > 0 and w.get(stI).vol < w.get(bcI).vol
+                conf += 12.0
+            if w.get(bcI).vol > 0 and utadI >= 0 and w.get(utadI).vol > 0 and w.get(utadI).vol < w.get(bcI).vol
+                conf += 8.0
+            conf := math.min(conf, 100.0)
+            int causeBars = w.get(last).bar - w.get(bcI).bar
+            float inv = utadI >= 0 ? w.get(utadI).price : creek
+            c := Campaign.new(ev, "distribution", phase, campTitle("distribution", phase), bcI, last, ice, creek, conf, false, utadI >= 0, false, sowI >= 0, na, na, na, inv, causeBars)
+            c := markProv(c, n, hasProv)
+            c := fillTargets(c, atrv)
+    c
+
+scoreOf(Campaign c, int n) =>
+    float sc = -1.0e18
+    if c.kind != "none" and (n - 1 - c.last) <= MAX_TAIL and c.conf >= minConf
+        sc := c.conf - 1.5 * (n - 1 - c.last) + 2.0 * c.ev.size()
+    sc
+
+analyze(array<Pivot> w, bool hasProv, float minApproach, float atrv) =>
+    int n = w.size()
+    Campaign best = emptyCamp()
+    if n >= 3
+        int start = math.max(1, n - maxLook)
+        float bestScore = -1.0e18
+        if start <= n - 2
+            for i = start to n - 2
+                Campaign a = tryAcc(w, i, hasProv, minApproach, atrv)
+                float sa = scoreOf(a, n)
+                if sa > bestScore
+                    best := a
+                    bestScore := sa
+                Campaign d = tryDist(w, i, hasProv, minApproach, atrv)
+                float sd = scoreOf(d, n)
+                if sd > bestScore
+                    best := d
+                    bestScore := sd
+    best
+
+// ───────────────────────────────  drawing pool  ──────────────────────────────
+var array<line>  lnPool = array.new<line>()
+var array<label> lbPool = array.new<label>()
+var array<box>   bxPool = array.new<box>()
+
+clearPool() =>
+    while lnPool.size() > 0
+        line.delete(lnPool.pop())
+    while lbPool.size() > 0
+        label.delete(lbPool.pop())
+    while bxPool.size() > 0
+        box.delete(bxPool.pop())
+    true
+
+evColor(string code, color ca, color cd) =>
+    color col = color.new(#546e7a, 10)
+    if code == "SC" or code == "PS" or code == "Spring" or code == "Test" or code == "LPS"
+        col := color.new(ca, 5)
+    else if code == "SOS" or code == "BU"
+        col := color.new(ca, 0)
+    else if code == "BC" or code == "PSY" or code == "UTAD" or code == "LPSY"
+        col := color.new(cd, 5)
+    else if code == "SOW" or code == "UT"
+        col := color.new(cd, 0)
+    else if code == "AR" or code == "ST"
+        col := color.new(#6d4c41, 10)
+    col
+
+drawZig(array<Pivot> w, color col) =>
+    int n = w.size()
+    if n > 1
+        for i = 1 to n - 1
+            Pivot a = w.get(i - 1)
+            Pivot b = w.get(i)
+            lnPool.push(line.new(a.bar, a.price, b.bar, b.price, color = color.new(col, 45), width = 1, style = line.style_dotted))
+    n
+
+drawCampaign(array<Pivot> w, Campaign c, color ca, color cd) =>
+    if c.kind != "none" and c.start >= 0 and c.start < w.size()
+        color theme = c.kind == "accumulation" ? ca : cd
+        int leftBar = w.get(c.start).bar
+        if c.ev.size() > 0
+            leftBar := w.get(c.ev.get(0).pi).bar
+        int rightBar = w.get(math.max(c.last, 0)).bar
+        int xEnd = math.max(rightBar, bar_index)
+        if showBox and not na(c.ice) and not na(c.creek)
+            bxPool.push(box.new(leftBar, c.creek, xEnd, c.ice, border_color = color.new(theme, 55), bgcolor = color.new(theme, 88), border_width = 1))
+            lbPool.push(label.new(leftBar, c.creek, c.kind == "accumulation" ? "ACC  " + c.phase : "DIST  " + c.phase, color = color.new(theme, 100), textcolor = theme, style = label.style_label_down, size = size.small))
+            lnPool.push(line.new(leftBar, c.creek, xEnd + projBars, c.creek, color = cCreek, style = line.style_dashed, width = 1))
+            lbPool.push(label.new(xEnd + projBars, c.creek, "creek  " + str.tostring(c.creek, format.mintick), color = color.new(cCreek, 100), textcolor = cCreek, style = label.style_label_left, size = size.small))
+            lnPool.push(line.new(leftBar, c.ice, xEnd + projBars, c.ice, color = cIce, style = line.style_dashed, width = 1))
+            lbPool.push(label.new(xEnd + projBars, c.ice, "ice  " + str.tostring(c.ice, format.mintick), color = color.new(cIce, 100), textcolor = cIce, style = label.style_label_left, size = size.small))
+        if showEv
+            int m = c.ev.size()
+            if m > 0
+                for i = 0 to m - 1
+                    Event e = c.ev.get(i)
+                    if e.pi >= 0 and e.pi < w.size()
+                        Pivot pv = w.get(e.pi)
+                        color col = evColor(e.code, ca, cd)
+                        lbPool.push(label.new(pv.bar, pv.price, e.code + (e.prov ? "?" : ""), color = color.new(col, e.prov ? 55 : 10), textcolor = color.white, style = pv.dir == 1 ? label.style_label_down : label.style_label_up, size = szOf(szEv), yloc = yloc.price))
+        if showTgt
+            int xT = math.min(bar_index + projBars, bar_index + 480)
+            if not na(c.t1)
+                lnPool.push(line.new(bar_index, c.t1, xT, c.t1, color = color.new(theme, 15), style = line.style_dotted, width = 2))
+                lbPool.push(label.new(xT, c.t1, "1x cause  " + str.tostring(c.t1, format.mintick), color = color.new(theme, 100), textcolor = theme, style = label.style_label_left, size = size.small))
+            if not na(c.t2)
+                lnPool.push(line.new(bar_index, c.t2, xT, c.t2, color = color.new(theme, 40), style = line.style_dotted))
+                lbPool.push(label.new(xT, c.t2, "1.618x  " + str.tostring(c.t2, format.mintick), color = color.new(theme, 100), textcolor = theme, style = label.style_label_left, size = size.small))
+            if not na(c.horiz)
+                lnPool.push(line.new(bar_index, c.horiz, xT, c.horiz, color = color.new(theme, 55), style = line.style_dashed))
+                lbPool.push(label.new(xT, c.horiz, "horiz count  " + str.tostring(c.horiz, format.mintick), color = color.new(theme, 100), textcolor = theme, style = label.style_label_left, size = size.small))
+            if not na(c.inv)
+                lnPool.push(line.new(bar_index - 1, c.inv, xT, c.inv, color = cInv, style = line.style_dashed))
+                lbPool.push(label.new(xT, c.inv, "invalidation  " + str.tostring(c.inv, format.mintick), color = color.new(cInv, 100), textcolor = cInv, style = label.style_label_left, size = size.small))
+    c.kind
+
+hasCode(Campaign c, string code) =>
+    bool hit = false
+    int m = c.ev.size()
+    if m > 0
+        for i = 0 to m - 1
+            if c.ev.get(i).code == code
+                hit := true
+    hit
+
+// ──────────────────────────────────  engine  ─────────────────────────────────
+float atrv = ta.atr(atrLen)
+float minMove = filtMode == "ATR" ? atrv * atrMult : filtMode == "Percent" ? close * pctMove / 100.0 : 0.0
+float minApproach = atrv * minAppMult
+float ph = ta.pivothigh(high, depthIn, depthIn)
+float pl = ta.pivotlow(low, depthIn, depthIn)
+float wHi = ta.highest(high, depthIn + 1)
+float wLo = ta.lowest(low, depthIn + 1)
+int   oHi = ta.highestbars(high, depthIn + 1)
+int   oLo = ta.lowestbars(low, depthIn + 1)
+float volAt = na(volume[depthIn]) ? 0.0 : volume[depthIn]
+float volMa = ta.sma(volume, volLen)
+float spr = high - low
+float sprMa = ta.sma(spr, volLen)
+
+var Zig zMain = Zig.new(array.new<Pivot>())
+zMain.step(depthIn, minMove, ph, pl, wHi, wLo, oHi, oLo, volAt)
+
+[wDisp, hpDisp] = buildWork(zMain, useProv and barstate.islast)
+array<Pivot> wConf = array.copy(zMain.pv)
+
+var Campaign cDisp = emptyCamp()
+var Campaign cConf = emptyCamp()
+
+if zMain.changed or barstate.islast
+    cDisp := analyze(wDisp, hpDisp, minApproach, atrv)
+if zMain.changed
+    cConf := analyze(wConf, false, minApproach, atrv)
+
+// ────────────────────────────  effort vs result  ─────────────────────────────
+bool hasVol = not na(volume) and volume > 0 and not na(volMa) and volMa > 0 and not na(sprMa) and sprMa > 0
+bool absorb = hasVol and volume >= erEffort * volMa and spr <= erResult * sprMa
+bool climaxBar = hasVol and volume >= climaxVol * volMa and spr >= climaxSpr * sprMa
+color erCol = absorb ? color.new(#fb8c00, 20) : climaxBar ? (close >= open ? color.new(#43a047, 25) : color.new(#e53935, 25)) : na
+barcolor(showBars ? erCol : na)
+
+plotshape(showER and absorb, title = "Absorption", style = shape.diamond, location = location.abovebar, color = color.new(#fb8c00, 0), size = size.tiny)
+plotshape(showER and climaxBar and close < open, title = "Climax down", style = shape.xcross, location = location.belowbar, color = color.new(#e53935, 0), size = size.tiny)
+plotshape(showER and climaxBar and close >= open, title = "Climax up", style = shape.xcross, location = location.abovebar, color = color.new(#43a047, 0), size = size.tiny)
+
+// ─────────────────────────────────  render  ──────────────────────────────────
+if barstate.islast
+    clearPool()
+    if showZig
+        drawZig(wDisp, cZig)
+    drawCampaign(wDisp, cDisp, cAcc, cDist)
+
+// ───────────────────────────────  campaign panel  ────────────────────────────
+var table tb = table.new(position.top_right, 2, 9, border_width = 1, border_color = color.new(color.gray, 60), frame_width = 1, frame_color = color.new(color.gray, 40))
+
+if barstate.islast and showTbl
+    color hdr = cDisp.kind == "none" ? color.gray : cDisp.kind == "accumulation" ? color.new(cAcc, 20) : color.new(cDist, 20)
+    string evList = "-"
+    if cDisp.ev.size() > 0
+        evList := cDisp.ev.get(0).code + (cDisp.ev.get(0).prov ? "?" : "")
+        if cDisp.ev.size() > 1
+            for i = 1 to cDisp.ev.size() - 1
+                evList += "  " + cDisp.ev.get(i).code + (cDisp.ev.get(i).prov ? "?" : "")
+    string rngS = na(cDisp.ice) ? "-" : str.tostring(cDisp.ice, format.mintick) + "  –  " + str.tostring(cDisp.creek, format.mintick)
+    string tgtS = na(cDisp.t1) ? "-" : str.tostring(cDisp.t1, format.mintick) + "   /   " + str.tostring(cDisp.t2, format.mintick)
+    string erS = not hasVol ? "no volume" : absorb ? "absorption" : climaxBar ? "climax" : "neutral"
+    string bias = cDisp.kind == "accumulation" ? "up (demand in control)" : cDisp.kind == "distribution" ? "down (supply in control)" : "-"
+    table.cell(tb, 0, 0, "Wyckoff Method", text_color = color.white, bgcolor = hdr, text_size = size.small)
+    table.cell(tb, 1, 0, str.tostring(math.round(cDisp.conf)) + "% conf", text_color = color.white, bgcolor = hdr, text_size = size.small)
+    table.cell(tb, 0, 1, "Campaign", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 1, cDisp.title, text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 2, "Events", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 2, evList, text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 3, "Range (ice – creek)", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 3, rngS, text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 4, "Cause / effect", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 4, cDisp.causeBars > 0 ? str.tostring(cDisp.causeBars) + " bars   →   " + tgtS : "-", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 5, "Invalidation", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 5, na(cDisp.inv) ? "-" : str.tostring(cDisp.inv, format.mintick), text_color = cInv, text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 6, "Path of least resistance", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 6, bias, text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 7, "Effort vs result", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 7, erS, text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 0, 8, "Swings held", text_size = size.small, text_halign = text.align_left)
+    table.cell(tb, 1, 8, str.tostring(wDisp.size()) + "  (depth " + str.tostring(depthIn) + ")", text_size = size.small, text_halign = text.align_left)
+
+// ─────────────────────────────────  alerts  ──────────────────────────────────
+// Alerts run off the confirmed campaign only, so they never fire on a
+// provisional swing that can still disappear.
+var string prevSig = na
+string sig = cConf.kind + "|" + cConf.phase + "|" + str.tostring(cConf.start) + "|" + str.tostring(cConf.last)
+bool changed = not na(prevSig) and sig != prevSig
+if barstate.isconfirmed
+    prevSig := sig
+
+bool springAlert = changed and cConf.spring and hasCode(cConf, "Spring")
+bool sosAlert    = changed and cConf.sos
+bool utadAlert   = changed and cConf.utad
+bool sowAlert    = changed and cConf.sow
+
+if alertsOn and changed and barstate.isconfirmed
+    alert("Wyckoff campaign updated: " + cConf.title + " (" + str.tostring(math.round(cConf.conf)) + "% conf)", alert.freq_once_per_bar)
+
+alertcondition(changed, "Campaign changed", "Wyckoff campaign changed on {{ticker}} {{interval}}")
+alertcondition(springAlert, "Spring", "Wyckoff spring on {{ticker}} {{interval}}")
+alertcondition(sosAlert, "Sign of Strength / jump across the creek", "Wyckoff SOS on {{ticker}} {{interval}}")
+alertcondition(utadAlert, "UTAD", "Wyckoff UTAD on {{ticker}} {{interval}}")
+alertcondition(sowAlert, "Sign of Weakness / ice break", "Wyckoff SOW on {{ticker}} {{interval}}")
