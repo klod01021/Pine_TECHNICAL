@@ -28,11 +28,11 @@ Depth is counted in **bars, not time**, so it has to suit how many bars your cha
 
 | Chart | Start with |
 | --- | --- |
-| 1m - 15m | depth 8-12 |
-| 1H - 4H | depth 12-18 |
-| Daily | depth 12-20 |
-| Weekly | depth 8-12 |
-| Monthly | depth 5-8 |
+| 1m - 15m | depth 5-8 |
+| 1H - 4H | depth 8-12 |
+| Daily | depth 8-12 |
+| Weekly | depth 5-8 |
+| Monthly | depth 4-6 |
 
 If you see too many tiny ranges, raise the depth or raise **Minimum approach = ATR x**. If a range you can see by eye is being ignored, lower them.
 

@@ -31,9 +31,9 @@ The counting logic is mirrored in [`tools/wyckoff_logic_reference.py`](../tools/
 
 | Input | Default | Notes |
 | --- | --- | --- |
-| Pivot depth | 12 | The master sensitivity control. Larger returns fewer, larger ranges. |
+| Pivot depth | 8 | The master sensitivity control. Larger returns fewer, larger ranges. |
 | Noise filter | ATR | `ATR`, `Percent` or `None`. |
-| Minimum swing = ATR x | 1.5 | Used when the filter is ATR. |
+| Minimum swing = ATR x | 1.0 | Used when the filter is ATR. |
 | ATR length | 14 | Also used for the approach filter and the horizontal count. |
 | Minimum swing (%) | 2.0 | Used when the filter is Percent. |
 | Include the live, unconfirmed swing | on | Adds the running high/low since the last confirmed pivot, marked `?`. |
@@ -43,9 +43,9 @@ The counting logic is mirrored in [`tools/wyckoff_logic_reference.py`](../tools/
 
 | Input | Default | Notes |
 | --- | --- | --- |
-| Minimum approach = ATR x | 2.0 | Decline into SC / rally into BC must be at least this. Raise it to stop trend pullbacks being boxed. |
-| Minimum AR as a fraction of the approach | 0.30 | Automatic rally / reaction has to retrace at least this. |
-| Maximum AR as a fraction of the approach | 0.95 | Stops a V-reversal being labelled as a range. |
+| Minimum approach = ATR x | 1.0 | Decline into SC / rally into BC must be at least this. Keep it at or below the minimum swing. Raise it to stop trend pullbacks being boxed. |
+| Minimum AR as a fraction of the approach | 0.25 | Automatic rally / reaction has to retrace at least this. |
+| Maximum AR as a fraction of the approach | 1.10 | Stops a V-reversal being labelled as a range. |
 | Secondary test zone | 0.45 | ST must finish in this fraction of the range nearest the climax. |
 | Spring / UTAD max penetration | 0.40 | A false break may pierce by up to this fraction of the range height, provided it recovers. |
 | Breakout tolerance | 0.02 | How far through the creek / ice a held break must go to count as SOS / SOW. |
