@@ -1,0 +1,255 @@
+//@version=6
+indicator("Anchored VWAP + CVD", shorttitle="AVWAP CVD", overlay=false, max_labels_count=200, max_lines_count=50, timeframe="", timeframe_gaps=true)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Formulas match python/anchored_vwap_cvd.py
+//
+// VWAP from the current anchor:
+//     src     = HLC3 | OHLC4 | HL2 | close
+//     vwap    = sum(src * vol) / sum(vol)
+//     stdev   = sqrt(max(sum(src^2 * vol) / sum(vol) - vwap^2, 0))
+//     bands   = vwap ± k * stdev
+//
+// Bar delta (TradingView has no tick tape, so this is a proxy):
+//     CLV:            volume * (2*close - high - low) / (high - low)
+//                     zero-range bars fall back to sign(close - close[1])
+//     Close vs Open:  sign(close - open) * volume
+//     Close vs Close: sign(close - close[1]) * volume
+//     Optional LTF:   sum of sign(close-open)*volume on a lower timeframe
+// CVD = sum of delta from the same anchor as VWAP
+// ─────────────────────────────────────────────────────────────────────────────
+
+string grpA = "Anchor"
+string anchorMode = input.string("Session", "Anchor", options=["Session", "Week", "Month", "Year", "Manual", "Rolling"], group=grpA, tooltip="Session / Week / Month / Year reset the window. Manual uses the timestamp. Rolling is a trailing N-bar VWAP + CVD.")
+int rollingLen = input.int(50, "Rolling length", minval=1, maxval=500, group=grpA)
+int manualTime = input.time(timestamp(2024, 1, 1, 9, 30), "Manual anchor time", group=grpA)
+
+string grpS = "Source"
+string priceSrc = input.string("HLC3", "VWAP source", options=["HLC3", "OHLC4", "HL2", "Close"], group=grpS)
+string deltaMethod = input.string("CLV", "Delta method", options=["CLV", "Close vs Open", "Close vs Close"], group=grpS)
+bool useLtf = input.bool(false, "Use lower-TF delta", group=grpS, tooltip="More accurate CVD approximation. Lower TF must be below the chart TF. Leave off for a 1:1 match with the Python CLV engine.")
+string ltf = input.timeframe("1", "Lower timeframe", group=grpS)
+
+string grpB = "VWAP bands"
+bool showVwap = input.bool(true, "Show VWAP", group=grpB)
+bool showBand1 = input.bool(true, "Show ±1σ", group=grpB)
+bool showBand2 = input.bool(true, "Show ±2σ", group=grpB)
+float m1 = input.float(1.0, "Band 1 multiplier", minval=0.0, step=0.1, group=grpB)
+float m2 = input.float(2.0, "Band 2 multiplier", minval=0.0, step=0.1, group=grpB)
+color vwapCol = input.color(#2962FF, "VWAP", group=grpB)
+color bandCol = input.color(#5B8DEF, "Bands", group=grpB)
+
+string grpC = "CVD"
+int cvdEmaLen = input.int(1, "CVD EMA", minval=1, group=grpC)
+bool showCvdHist = input.bool(true, "CVD histogram", group=grpC)
+bool showCvdEma = input.bool(true, "CVD EMA line", group=grpC)
+bool colorBars = input.bool(false, "Color candles by bar delta", group=grpC)
+color upCol = input.color(#26a69a, "Positive delta", group=grpC)
+color dnCol = input.color(#ef5350, "Negative delta", group=grpC)
+
+string grpD = "Divergence"
+bool showDiv = input.bool(true, "Detect divergences", group=grpD, tooltip="Compares consecutive price pivots with CVD sampled at those same bars. Regular bull: price LL + CVD HL. Regular bear: price HH + CVD LH.")
+bool showHidden = input.bool(false, "Show hidden divergences", group=grpD)
+int pivL = input.int(3, "Pivot left bars", minval=1, group=grpD)
+int pivR = input.int(3, "Pivot right bars", minval=1, group=grpD)
+
+string grpV = "Dashboard"
+bool showTable = input.bool(true, "Show dashboard", group=grpV)
+
+// ── Price source ─────────────────────────────────────────────────────────────
+float src = switch priceSrc
+    "OHLC4" => ohlc4
+    "HL2"   => hl2
+    "Close" => close
+    => hlc3
+
+// ── Bar delta ────────────────────────────────────────────────────────────────
+float barRange = high - low
+float prevClose = nz(close[1], open)
+float clvFallback = close > prevClose ? 1.0 : close < prevClose ? -1.0 : 0.0
+float clv = barRange > 0.0 ? (2.0 * close - high - low) / barRange : clvFallback
+float deltaClv = volume * clv
+float deltaCO = close > open ? volume : close < open ? -volume : 0.0
+float deltaCC = close > prevClose ? volume : close < prevClose ? -volume : 0.0
+
+float ltfDelta = 0.0
+if useLtf
+    float[] ltfO = request.security_lower_tf(syminfo.tickerid, ltf, open)
+    float[] ltfC = request.security_lower_tf(syminfo.tickerid, ltf, close)
+    float[] ltfV = request.security_lower_tf(syminfo.tickerid, ltf, volume)
+    if not na(ltfC) and array.size(ltfC) > 0
+        int sz = array.size(ltfC)
+        for i = 0 to sz - 1
+            float oLtf = array.get(ltfO, i)
+            float cLtf = array.get(ltfC, i)
+            float vLtf = array.get(ltfV, i)
+            ltfDelta += cLtf > oLtf ? vLtf : cLtf < oLtf ? -vLtf : 0.0
+
+float deltaBar = switch deltaMethod
+    "Close vs Open"  => deltaCO
+    "Close vs Close" => deltaCC
+    => deltaClv
+float delta = useLtf ? ltfDelta : deltaBar
+
+// ── Anchor ───────────────────────────────────────────────────────────────────
+bool newSession = session.isfirstbar
+bool newWeek = timeframe.change("W")
+bool newMonth = timeframe.change("M")
+bool newYear = timeframe.change("12M")
+bool newManual = time >= manualTime and (barstate.isfirst or nz(time[1]) < manualTime)
+bool beforeManual = anchorMode == "Manual" and time < manualTime
+
+bool newAnchor = switch anchorMode
+    "Session" => newSession
+    "Week"    => newWeek
+    "Month"   => newMonth
+    "Year"    => newYear
+    "Manual"  => newManual
+    "Rolling" => false
+    => newSession
+
+if barstate.isfirst and anchorMode != "Rolling" and anchorMode != "Manual"
+    newAnchor := true
+
+// ── Running sums (same recurrence as the Python engine) ──────────────────────
+var float sumPV = 0.0
+var float sumV = 0.0
+var float sumPV2 = 0.0
+var float cvdRaw = 0.0
+
+if anchorMode == "Rolling"
+    int win = math.min(rollingLen, bar_index + 1)
+    float sp = 0.0
+    float sv = 0.0
+    float sp2 = 0.0
+    float sd = 0.0
+    for i = 0 to win - 1
+        sp += src[i] * volume[i]
+        sv += volume[i]
+        sp2 += src[i] * src[i] * volume[i]
+        sd += delta[i]
+    sumPV := sp
+    sumV := sv
+    sumPV2 := sp2
+    cvdRaw := sd
+else if beforeManual
+    sumPV := 0.0
+    sumV := 0.0
+    sumPV2 := 0.0
+    cvdRaw := na
+else if newAnchor or (barstate.isfirst and not beforeManual)
+    sumPV := src * volume
+    sumV := volume
+    sumPV2 := src * src * volume
+    cvdRaw := delta
+else
+    sumPV += src * volume
+    sumV += volume
+    sumPV2 += src * src * volume
+    cvdRaw += delta
+
+float vwap = sumV > 0.0 ? sumPV / sumV : na
+float variance = sumV > 0.0 ? math.max(sumPV2 / sumV - vwap * vwap, 0.0) : na
+float stdev = na(variance) ? na : math.sqrt(variance)
+float upper1 = vwap + m1 * stdev
+float lower1 = vwap - m1 * stdev
+float upper2 = vwap + m2 * stdev
+float lower2 = vwap - m2 * stdev
+float cvdSmooth = ta.ema(cvdRaw, cvdEmaLen)
+float distPct = not na(vwap) and vwap != 0.0 ? (close - vwap) / vwap * 100.0 : na
+float priceBias = not na(vwap) ? math.sign(close - vwap) : 0.0
+float cvdBias = not na(cvdSmooth) ? math.sign(cvdSmooth) : 0.0
+bool confluence = priceBias != 0.0 and priceBias == cvdBias
+
+// ── Price-pane VWAP ──────────────────────────────────────────────────────────
+plot(showVwap ? vwap : na, "VWAP", color=vwapCol, linewidth=2, force_overlay=true)
+u1 = plot(showBand1 ? upper1 : na, "VWAP +1σ", color=color.new(bandCol, 55), linewidth=1, force_overlay=true)
+l1 = plot(showBand1 ? lower1 : na, "VWAP -1σ", color=color.new(bandCol, 55), linewidth=1, force_overlay=true)
+fill(u1, l1, color.new(bandCol, 90), title="±1σ fill")
+u2 = plot(showBand2 ? upper2 : na, "VWAP +2σ", color=color.new(bandCol, 75), linewidth=1, force_overlay=true)
+l2 = plot(showBand2 ? lower2 : na, "VWAP -2σ", color=color.new(bandCol, 75), linewidth=1, force_overlay=true)
+fill(u2, l2, color.new(bandCol, 96), title="±2σ fill")
+
+barcolor(colorBars ? (delta >= 0 ? color.new(upCol, 40) : color.new(dnCol, 40)) : na)
+
+// ── CVD pane ─────────────────────────────────────────────────────────────────
+color histCol = delta >= 0 ? upCol : dnCol
+plot(showCvdHist ? cvdRaw : na, "CVD", style=plot.style_histogram, color=histCol, linewidth=4)
+plot(showCvdEma ? cvdSmooth : na, "CVD EMA", color=#f5c542, linewidth=2)
+hline(0.0, "Zero", color=color.new(color.gray, 40))
+
+// ── Divergences (price pivots, CVD sampled at the pivot bar) ─────────────────
+float ph = ta.pivothigh(high, pivL, pivR)
+float pl = ta.pivotlow(low, pivL, pivR)
+
+var float prevPxH = na
+var float lastPxH = na
+var float prevCvdH = na
+var float lastCvdH = na
+var float prevPxL = na
+var float lastPxL = na
+var float prevCvdL = na
+var float lastCvdL = na
+
+bool bullDiv = false
+bool bearDiv = false
+bool hidBull = false
+bool hidBear = false
+
+if showDiv and not na(ph)
+    prevPxH := lastPxH
+    lastPxH := ph
+    prevCvdH := lastCvdH
+    lastCvdH := cvdSmooth[pivR]
+    if not na(prevPxH) and not na(prevCvdH) and not na(lastCvdH)
+        bearDiv := lastPxH > prevPxH and lastCvdH < prevCvdH
+        hidBear := lastPxH < prevPxH and lastCvdH > prevCvdH
+
+if showDiv and not na(pl)
+    prevPxL := lastPxL
+    lastPxL := pl
+    prevCvdL := lastCvdL
+    lastCvdL := cvdSmooth[pivR]
+    if not na(prevPxL) and not na(prevCvdL) and not na(lastCvdL)
+        bullDiv := lastPxL < prevPxL and lastCvdL > prevCvdL
+        hidBull := lastPxL > prevPxL and lastCvdL < prevCvdL
+
+plotshape(bullDiv, title="Bullish CVD divergence", style=shape.triangleup, location=location.belowbar, color=upCol, size=size.small, text="Bull", textcolor=upCol, force_overlay=true)
+plotshape(bearDiv, title="Bearish CVD divergence", style=shape.triangledown, location=location.abovebar, color=dnCol, size=size.small, text="Bear", textcolor=dnCol, force_overlay=true)
+plotshape(showHidden and hidBull, title="Hidden bullish divergence", style=shape.circle, location=location.belowbar, color=color.new(upCol, 20), size=size.tiny, force_overlay=true)
+plotshape(showHidden and hidBear, title="Hidden bearish divergence", style=shape.circle, location=location.abovebar, color=color.new(dnCol, 20), size=size.tiny, force_overlay=true)
+
+plotshape(bullDiv, title="Bull div (CVD pane)", style=shape.triangleup, location=location.bottom, color=upCol, size=size.tiny)
+plotshape(bearDiv, title="Bear div (CVD pane)", style=shape.triangledown, location=location.top, color=dnCol, size=size.tiny)
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
+var table dash = table.new(position.top_right, 2, 7, bgcolor=color.new(#1a1e2a, 15), border_color=color.new(#787b86, 40), border_width=1)
+
+if barstate.islast
+    if showTable
+        string biasTxt = confluence ? (priceBias > 0 ? "BULL confluence" : "BEAR confluence") : priceBias > 0 ? "Price above VWAP" : priceBias < 0 ? "Price below VWAP" : "Flat"
+        color biasCol = confluence ? (priceBias > 0 ? upCol : dnCol) : color.gray
+        table.cell(dash, 0, 0, "AVWAP + CVD", text_color=color.white, text_size=size.small, bgcolor=color.new(vwapCol, 60))
+        table.cell(dash, 1, 0, anchorMode, text_color=color.white, text_size=size.small, bgcolor=color.new(vwapCol, 60))
+        table.cell(dash, 0, 1, "VWAP", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, 1, str.tostring(vwap, format.mintick), text_color=color.white, text_size=size.small)
+        table.cell(dash, 0, 2, "Δ VWAP", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, 2, str.tostring(distPct, "#.##") + "%", text_color=distPct >= 0 ? upCol : dnCol, text_size=size.small)
+        table.cell(dash, 0, 3, "CVD", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, 3, str.tostring(cvdRaw, "#"), text_color=cvdRaw >= 0 ? upCol : dnCol, text_size=size.small)
+        table.cell(dash, 0, 4, "Bar Δ", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, 4, str.tostring(delta, "#"), text_color=histCol, text_size=size.small)
+        table.cell(dash, 0, 5, "σ", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, 5, str.tostring(stdev, format.mintick), text_color=color.white, text_size=size.small)
+        table.cell(dash, 0, 6, "Bias", text_color=color.silver, text_size=size.small)
+        table.cell(dash, 1, 6, biasTxt, text_color=biasCol, text_size=size.small)
+    else
+        table.clear(dash, 0, 0, 1, 6)
+
+// ── Alerts ───────────────────────────────────────────────────────────────────
+alertcondition(bullDiv, "Bullish CVD divergence", "Price lower-low with CVD higher-low")
+alertcondition(bearDiv, "Bearish CVD divergence", "Price higher-high with CVD lower-high")
+alertcondition(ta.crossover(close, vwap), "Close crossed above AVWAP", "Close crossed above anchored VWAP")
+alertcondition(ta.crossunder(close, vwap), "Close crossed below AVWAP", "Close crossed below anchored VWAP")
+alertcondition(confluence and priceBias > 0 and not confluence[1], "Bullish VWAP/CVD confluence", "Price above VWAP and CVD > 0")
+alertcondition(confluence and priceBias < 0 and not confluence[1], "Bearish VWAP/CVD confluence", "Price below VWAP and CVD < 0")
