@@ -1,0 +1,155 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// ADX / Squeeze Filter — Wilder ADX combined with a TTM Bollinger/Keltner squeeze
+// Python reference: python/adx_squeeze_filter/indicator.py
+//@version=6
+indicator("ADX / Squeeze Filter", shorttitle="ADX-SQZ", overlay=false)
+
+// --- Inputs ----------------------------------------------------------------
+string grpAdx = "ADX"
+int diLength = input.int(14, "+DI / -DI length", minval=1, group=grpAdx)
+int adxSmoothing = input.int(14, "ADX smoothing", minval=1, group=grpAdx)
+float adxCoilTh = input.float(20.0, "Coil threshold (weak trend)", minval=1.0, group=grpAdx)
+float adxTrendTh = input.float(25.0, "Trend threshold (strong trend)", minval=1.0, group=grpAdx)
+
+string grpSqz = "Squeeze"
+int bbLength = input.int(20, "BB length", minval=1, group=grpSqz)
+float bbMult = input.float(2.0, "BB multiplier", minval=0.1, step=0.1, group=grpSqz)
+int kcLength = input.int(20, "Keltner length", minval=1, group=grpSqz)
+float kcMult = input.float(1.5, "Keltner multiplier", minval=0.1, step=0.1, group=grpSqz)
+bool useTrueRange = input.bool(true, "Keltner uses true range", group=grpSqz)
+
+string grpFilter = "Filter"
+string filterMode = input.string("both", "Squeeze definition", options=["both", "either", "ttm", "adx"], tooltip="both = TTM squeeze AND ADX < coil (strict). either = TTM OR low ADX. ttm = Bollinger inside Keltner only. adx = low ADX only.", group=grpFilter)
+bool requireAdxRising = input.bool(true, "Fires require rising ADX", group=grpFilter)
+
+string grpDisp = "Display"
+string viewMode = input.string("ADX", "Pane view", options=["ADX", "Momentum"], group=grpDisp)
+bool showBands = input.bool(true, "Show BB / KC on chart", group=grpDisp)
+bool showOverlayDots = input.bool(false, "Squeeze dots on price", group=grpDisp)
+bool showTable = input.bool(true, "Status table", group=grpDisp)
+
+// --- Wilder DMI / ADX (matches ta.dmi / Python directional_movement) -------
+float upMove = ta.change(high)
+float downMove = -ta.change(low)
+float plusDM = na(upMove) or na(downMove) ? na : (upMove > downMove and upMove > 0 ? upMove : 0.0)
+float minusDM = na(upMove) or na(downMove) ? na : (downMove > upMove and downMove > 0 ? downMove : 0.0)
+float trRaw = ta.tr(true)
+float trSmooth = ta.rma(trRaw, diLength)
+float plusSmooth = ta.rma(plusDM, diLength)
+float minusSmooth = ta.rma(minusDM, diLength)
+float plusDI = fixnan(100.0 * plusSmooth / trSmooth)
+float minusDI = fixnan(100.0 * minusSmooth / trSmooth)
+float diSum = plusDI + minusDI
+float dx = 100.0 * math.abs(plusDI - minusDI) / (diSum == 0.0 ? 1.0 : diSum)
+float adxValue = ta.rma(dx, adxSmoothing)
+
+// --- TTM squeeze: Bollinger inside Keltner + linreg momentum ---------------
+float src = close
+float bbBasis = ta.sma(src, bbLength)
+float bbDev = bbMult * ta.stdev(src, bbLength)
+float upperBB = bbBasis + bbDev
+float lowerBB = bbBasis - bbDev
+
+float kcBasis = ta.sma(src, kcLength)
+float barRange = useTrueRange ? trRaw : (high - low)
+float kcRange = ta.sma(barRange, kcLength)
+float upperKC = kcBasis + kcRange * kcMult
+float lowerKC = kcBasis - kcRange * kcMult
+
+bool squeezeOn = lowerBB > lowerKC and upperBB < upperKC
+bool squeezeOff = lowerBB < lowerKC and upperBB > upperKC
+bool noSqueeze = not squeezeOn and not squeezeOff
+
+float hh = ta.highest(high, kcLength)
+float ll = ta.lowest(low, kcLength)
+float smaClose = ta.sma(close, kcLength)
+float midPoint = math.avg(math.avg(hh, ll), smaClose)
+float momentum = ta.linreg(src - midPoint, kcLength, 0)
+
+// --- Combined filter -------------------------------------------------------
+bool ready = not na(adxValue) and not na(momentum)
+bool adxIsCoil = ready and adxValue < adxCoilTh
+bool adxIsStrong = ready and adxValue >= adxTrendTh
+bool adxRising = ready and adxValue > nz(adxValue[1])
+
+bool ttmOn = ready and squeezeOn
+bool inSqueeze = filterMode == "both" ? ttmOn and adxIsCoil : filterMode == "either" ? ttmOn or adxIsCoil : filterMode == "ttm" ? ttmOn : adxIsCoil
+bool squeezeRelease = ready and inSqueeze[1] and not inSqueeze
+
+bool bullish = plusDI > minusDI and momentum > 0
+bool bearish = minusDI > plusDI and momentum < 0
+bool adxOk = requireAdxRising ? adxRising : true
+bool longFire = squeezeRelease and bullish and adxOk
+bool shortFire = squeezeRelease and bearish and adxOk
+bool allowLong = ready and not inSqueeze and adxIsStrong and bullish
+bool allowShort = ready and not inSqueeze and adxIsStrong and bearish
+
+float regimeCode = not ready ? na : squeezeRelease ? 2.0 : inSqueeze ? 1.0 : adxIsStrong ? 4.0 : 3.0
+string regimeName = not ready ? "warmup" : squeezeRelease ? "fire" : inSqueeze ? "compression" : adxIsStrong ? "expansion" : "developing"
+bool adxTrendCross = ta.crossover(adxValue, adxTrendTh)
+
+// --- Pane plots ------------------------------------------------------------
+bool showAdxView = viewMode == "ADX"
+bool showMomView = viewMode == "Momentum"
+
+plot(showAdxView ? plusDI : na, "+DI", color=color.new(color.teal, 0), linewidth=1)
+plot(showAdxView ? minusDI : na, "-DI", color=color.new(color.red, 0), linewidth=1)
+plot(showAdxView ? adxValue : na, "ADX", color=color.new(color.orange, 0), linewidth=2)
+hline(adxCoilTh, "Coil", color=color.new(color.gray, 40), linestyle=hline.style_dotted, display=showAdxView ? display.all : display.none)
+hline(adxTrendTh, "Trend", color=color.new(color.gray, 20), linestyle=hline.style_dashed, display=showAdxView ? display.all : display.none)
+plot(regimeCode, "Regime", display=display.data_window)
+plot(inSqueeze ? 1.0 : 0.0, "In squeeze", display=display.data_window)
+plot(allowLong ? 1.0 : 0.0, "Allow long", display=display.data_window)
+plot(allowShort ? 1.0 : 0.0, "Allow short", display=display.data_window)
+
+bool momRising = momentum > nz(momentum[1])
+color histColor = momentum > 0 ? (momRising ? color.lime : color.green) : (momentum < nz(momentum[1]) ? color.red : color.maroon)
+plot(showMomView ? momentum : na, "Squeeze momentum", color=histColor, style=plot.style_histogram, linewidth=4)
+
+color dotColor = noSqueeze ? color.blue : squeezeOn ? color.black : color.gray
+plot(showMomView ? 0.0 : na, "Squeeze state", color=dotColor, style=plot.style_cross, linewidth=2)
+
+color bgCol = longFire ? color.new(color.lime, 80) : shortFire ? color.new(color.red, 80) : inSqueeze ? color.new(color.orange, 88) : adxIsStrong ? color.new(color.teal, 94) : na
+bgcolor(bgCol, title="Regime")
+
+plotshape(longFire, "Long fire (pane)", style=shape.triangleup, location=location.bottom, color=color.lime, size=size.tiny)
+plotshape(shortFire, "Short fire (pane)", style=shape.triangledown, location=location.top, color=color.red, size=size.tiny)
+
+// --- Price overlay: bands, squeeze dots, fire markers ----------------------
+plot(showBands ? upperBB : na, "BB upper", color=color.new(color.blue, 50), force_overlay=true)
+plot(showBands ? lowerBB : na, "BB lower", color=color.new(color.blue, 50), force_overlay=true)
+plot(showBands ? upperKC : na, "KC upper", color=color.new(color.orange, 50), force_overlay=true)
+plot(showBands ? lowerKC : na, "KC lower", color=color.new(color.orange, 50), force_overlay=true)
+
+plotshape(showOverlayDots and squeezeOn, "Squeeze on (price)", style=shape.circle, location=location.abovebar, color=color.black, size=size.tiny, force_overlay=true)
+plotshape(longFire, "Long fire (price)", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.small, force_overlay=true)
+plotshape(shortFire, "Short fire (price)", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small, force_overlay=true)
+
+// --- Status table ----------------------------------------------------------
+var table infoPanel = table.new(position.top_right, 2, 8, bgcolor=color.new(color.black, 75), border_width=1, border_color=color.new(color.gray, 40))
+if barstate.islast and showTable
+    color squeezeCell = inSqueeze ? color.new(color.orange, 40) : color.new(color.teal, 40)
+    color fireCell = longFire ? color.new(color.lime, 40) : shortFire ? color.new(color.red, 40) : color.new(color.gray, 70)
+    table.cell(infoPanel, 0, 0, "ADX / Squeeze", text_color=color.white, text_size=size.small)
+    table.cell(infoPanel, 1, 0, regimeName, text_color=color.white, text_size=size.small, bgcolor=squeezeCell)
+    table.cell(infoPanel, 0, 1, "ADX", text_color=color.silver, text_size=size.small)
+    table.cell(infoPanel, 1, 1, str.tostring(adxValue, "#.0"), text_color=color.orange, text_size=size.small)
+    table.cell(infoPanel, 0, 2, "+DI / -DI", text_color=color.silver, text_size=size.small)
+    table.cell(infoPanel, 1, 2, str.tostring(plusDI, "#.0") + " / " + str.tostring(minusDI, "#.0"), text_color=color.white, text_size=size.small)
+    table.cell(infoPanel, 0, 3, "Momentum", text_color=color.silver, text_size=size.small)
+    table.cell(infoPanel, 1, 3, str.tostring(momentum, "#.4f"), text_color=histColor, text_size=size.small)
+    table.cell(infoPanel, 0, 4, "TTM squeeze", text_color=color.silver, text_size=size.small)
+    table.cell(infoPanel, 1, 4, squeezeOn ? "ON" : squeezeOff ? "OFF" : "mid", text_color=color.white, text_size=size.small)
+    table.cell(infoPanel, 0, 5, "Filter squeeze", text_color=color.silver, text_size=size.small)
+    table.cell(infoPanel, 1, 5, inSqueeze ? "YES" : "no", text_color=color.white, text_size=size.small, bgcolor=squeezeCell)
+    table.cell(infoPanel, 0, 6, "Fire", text_color=color.silver, text_size=size.small)
+    table.cell(infoPanel, 1, 6, longFire ? "LONG" : shortFire ? "SHORT" : "—", text_color=color.white, text_size=size.small, bgcolor=fireCell)
+    table.cell(infoPanel, 0, 7, "Allow", text_color=color.silver, text_size=size.small)
+    table.cell(infoPanel, 1, 7, allowLong ? "long" : allowShort ? "short" : "stand aside", text_color=color.white, text_size=size.small)
+
+// --- Alerts ----------------------------------------------------------------
+alertcondition(inSqueeze and not inSqueeze[1], "Squeeze started", "ADX/Squeeze filter entered compression")
+alertcondition(squeezeRelease, "Squeeze released", "ADX/Squeeze filter released")
+alertcondition(longFire, "Long fire", "ADX/Squeeze long fire")
+alertcondition(shortFire, "Short fire", "ADX/Squeeze short fire")
+alertcondition(adxTrendCross, "ADX crossed into trend", "ADX crossed above the trend threshold")
