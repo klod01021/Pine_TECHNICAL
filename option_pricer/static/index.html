@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Option Pricer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Source+Sans+3:wght@400;500;600;700&family=Syne:wght@700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230a0e12'/><path d='M6 22 C10 10 16 8 26 12' fill='none' stroke='%23d4a017' stroke-width='2.5'/></svg>" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="mark">σ</span>
+          <div>
+            <p class="kicker">Vol desk</p>
+            <h1>Option Pricer</h1>
+          </div>
+        </div>
+        <p class="lede">
+          Black–Scholes with ATM / 25Δ RR / butterfly smile. Cross-check with PDE and simplified Monte Carlo.
+        </p>
+      </header>
+
+      <main class="layout">
+        <section class="col">
+          <form id="pricer-form" autocomplete="off">
+            <article class="card">
+              <header class="card-head">
+                <h2>Market</h2>
+                <span class="hint">Decimals enter as percent</span>
+              </header>
+              <div class="grid two">
+                <label>Spot
+                  <input name="spot" type="number" step="0.0001" min="0.0001" value="100" required />
+                </label>
+                <label>ATM vol %
+                  <input name="atm_vol_pct" type="number" step="0.01" min="0.01" value="20" required />
+                </label>
+                <label>25Δ risk reversal %
+                  <input name="rr_pct" type="number" step="0.01" value="-1.20" required />
+                </label>
+                <label>25Δ butterfly %
+                  <input name="bf_pct" type="number" step="0.01" value="0.40" required />
+                </label>
+                <label>Rate %
+                  <input name="rate_pct" type="number" step="0.01" value="5" required />
+                </label>
+                <label>Dividend / q %
+                  <input name="div_pct" type="number" step="0.01" value="1" required />
+                </label>
+              </div>
+              <p class="formula">
+                σ<sub>25c</sub> = ATM + BF + RR/2 &nbsp;·&nbsp; σ<sub>25p</sub> = ATM + BF − RR/2
+              </p>
+            </article>
+
+            <article class="card">
+              <header class="card-head">
+                <h2>Smile</h2>
+                <span id="strike-vol" class="pill">strike vol —</span>
+              </header>
+              <div class="chart-wrap">
+                <canvas id="smile-chart"></canvas>
+              </div>
+            </article>
+
+            <article class="card">
+              <header class="card-head">
+                <h2>Contract</h2>
+              </header>
+              <div class="segmented" role="tablist">
+                <label><input type="radio" name="option_style" value="european" checked /> European</label>
+                <label><input type="radio" name="option_style" value="american" /> American</label>
+                <label><input type="radio" name="option_style" value="barrier" /> Barrier</label>
+              </div>
+              <div class="segmented cp">
+                <label class="call"><input type="radio" name="option_type" value="call" checked /> Call</label>
+                <label class="put"><input type="radio" name="option_type" value="put" /> Put</label>
+              </div>
+              <div class="grid two">
+                <label>Strike
+                  <input name="strike" type="number" step="0.0001" min="0.0001" value="100" required />
+                </label>
+                <label>Expiry (days)
+                  <input name="expiry_days" type="number" step="1" min="1" value="90" required />
+                </label>
+              </div>
+              <div class="chips" id="tenor-chips">
+                <button type="button" data-days="7">1W</button>
+                <button type="button" data-days="30">1M</button>
+                <button type="button" data-days="90" class="active">3M</button>
+                <button type="button" data-days="180">6M</button>
+                <button type="button" data-days="365">1Y</button>
+              </div>
+              <div id="barrier-fields" class="barrier-fields hidden">
+                <div class="grid two">
+                  <label>Barrier type
+                    <select name="barrier_type">
+                      <option value="up_and_out">Up-and-out</option>
+                      <option value="up_and_in">Up-and-in</option>
+                      <option value="down_and_out">Down-and-out</option>
+                      <option value="down_and_in">Down-and-in</option>
+                    </select>
+                  </label>
+                  <label>Barrier
+                    <input name="barrier" type="number" step="0.0001" min="0.0001" value="120" />
+                  </label>
+                  <label>Rebate
+                    <input name="rebate" type="number" step="0.0001" min="0" value="0" />
+                  </label>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <header class="card-head">
+                <h2>Model</h2>
+              </header>
+              <div class="models">
+                <label>
+                  <input type="radio" name="model" value="black_scholes" checked />
+                  <span>
+                    <strong>Black–Scholes</strong>
+                    <em>Analytic vanilla / barrier · Bjerksund–Stensland American</em>
+                  </span>
+                </label>
+                <label>
+                  <input type="radio" name="model" value="pde" />
+                  <span>
+                    <strong>PDE</strong>
+                    <em>QuantLib finite-difference Black–Scholes grid</em>
+                  </span>
+                </label>
+                <label>
+                  <input type="radio" name="model" value="monte_carlo" />
+                  <span>
+                    <strong>Monte Carlo</strong>
+                    <em>Simplified GBM · discrete barrier · Longstaff–Schwartz</em>
+                  </span>
+                </label>
+              </div>
+              <div class="grid two mc-grid">
+                <label>MC paths
+                  <input name="mc_paths" type="number" step="1000" min="1000" max="400000" value="40000" />
+                </label>
+                <label>MC steps
+                  <input name="mc_steps" type="number" step="1" min="8" max="512" value="64" />
+                </label>
+              </div>
+              <label class="check">
+                <input type="checkbox" name="compare_models" checked />
+                Price all three models
+              </label>
+              <button type="submit" class="price-btn" id="price-btn">Price</button>
+            </article>
+          </form>
+        </section>
+
+        <section class="col results-col">
+          <article class="card hero">
+            <header class="card-head">
+              <h2>Premium</h2>
+              <span id="model-pill" class="pill">Black–Scholes</span>
+            </header>
+            <p id="price-value" class="price">—</p>
+            <p id="price-meta" class="meta">Configure the market and press Price, or edit any field.</p>
+            <div class="greeks" id="greeks">
+              <div><span>Delta</span><strong id="g-delta">—</strong></div>
+              <div><span>Gamma</span><strong id="g-gamma">—</strong></div>
+              <div><span>Vega</span><strong id="g-vega">—</strong></div>
+              <div><span>Theta</span><strong id="g-theta">—</strong></div>
+              <div><span>Rho</span><strong id="g-rho">—</strong></div>
+              <div><span>Strike vol</span><strong id="g-vol">—</strong></div>
+            </div>
+          </article>
+
+          <article class="card">
+            <header class="card-head">
+              <h2>Model comparison</h2>
+            </header>
+            <table class="cmp">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>Price</th>
+                  <th>Std err</th>
+                </tr>
+              </thead>
+              <tbody id="cmp-body">
+                <tr><td colspan="3" class="empty">No run yet</td></tr>
+              </tbody>
+            </table>
+          </article>
+
+          <article class="card">
+            <header class="card-head">
+              <h2>Payoff</h2>
+            </header>
+            <div class="chart-wrap">
+              <canvas id="payoff-chart"></canvas>
+            </div>
+          </article>
+
+          <article class="card notes">
+            <header class="card-head"><h2>Notes</h2></header>
+            <ul id="warnings" class="warn-list">
+              <li>Greeks: vega per 1 vol point, theta per day, rho per 1% rate.</li>
+            </ul>
+          </article>
+        </section>
+      </main>
+    </div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
