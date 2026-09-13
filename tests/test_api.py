@@ -16,6 +16,9 @@ def test_health_and_index():
     assert "Vol surface" in home.text
     assert "Custom points" in home.text
     assert "Load from RR / BF" in home.text
+    assert "Swap points" in home.text
+    assert "Date of expiry" in home.text
+    assert "Strike level" in home.text
 
 
 def test_price_european_call_api():

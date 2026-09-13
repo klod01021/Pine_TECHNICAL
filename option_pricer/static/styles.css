@@ -80,6 +80,114 @@ h1 {
   color: var(--muted);
 }
 
+.page-nav {
+  display: flex;
+  gap: 8px;
+}
+
+.page-nav button {
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.page-nav button.active {
+  color: var(--bg);
+  background: var(--gold);
+  border-color: var(--gold);
+}
+
+.pricer-lede {
+  margin-bottom: 18px;
+}
+
+.pricer-card {
+  max-width: 560px;
+}
+
+.pricer-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.two-way {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 18px 0 10px;
+}
+
+.two-way .way {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.two-way .way span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.two-way .way strong {
+  display: block;
+  margin-top: 6px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.two-way .bid strong {
+  color: var(--mint);
+}
+
+.two-way .offer strong {
+  color: var(--gold-2);
+}
+
+.bo-table,
+.vol-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.bo-table th,
+.vol-grid th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 8px 6px;
+}
+
+.bo-table td,
+.vol-grid td {
+  padding: 4px 6px;
+}
+
+.bo-table input,
+.vol-grid input {
+  padding: 8px 8px;
+}
+
+.vol-grid th {
+  white-space: nowrap;
+}
+
+.vol-grid .strike-cell {
+  min-width: 88px;
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);

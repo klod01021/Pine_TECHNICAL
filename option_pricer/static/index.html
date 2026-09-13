@@ -24,259 +24,329 @@
             <h1>Option Pricer</h1>
           </div>
         </div>
-        <p class="lede">
-          Black–Scholes with a full vol surface. Build it from 10Δ / 25Δ RR–BF quotes, or type your own
-          strike / vol points and let the pricer interpolate the rest. PDE and Monte Carlo use local vol.
-        </p>
+        <nav class="page-nav" aria-label="Pages">
+          <button type="button" id="nav-pricer" class="active" data-page="pricer">Pricer</button>
+          <button type="button" id="nav-market" data-page="market">Market</button>
+        </nav>
       </header>
 
-      <main class="layout">
-        <section class="col">
-          <form id="pricer-form" autocomplete="off">
-            <article class="card">
-              <header class="card-head">
-                <h2>Market</h2>
-                <span class="hint">Decimals enter as percent</span>
-              </header>
-              <div class="grid two">
-                <label>Spot
-                  <input name="spot" type="number" step="0.0001" min="0.0001" value="100" required />
-                </label>
-                <label>Rate %
-                  <input name="rate_pct" type="number" step="0.01" value="5" required />
-                </label>
-                <label>Dividend / q %
-                  <input name="div_pct" type="number" step="0.01" value="1" required />
-                </label>
+      <form id="pricer-form" autocomplete="off">
+        <section id="page-pricer" class="page">
+          <p class="lede pricer-lede">
+            Expiry, strike, and a two-way price. Edit the vol surface, swap points, and bid / offer
+            on the Market page.
+          </p>
+          <article class="card pricer-card">
+            <div class="segmented cp">
+              <label class="call"><input type="radio" name="option_type" value="call" checked /> Call</label>
+              <label class="put"><input type="radio" name="option_type" value="put" /> Put</label>
+            </div>
+            <div class="pricer-fields">
+              <label>Date of expiry
+                <input name="expiry_date" type="date" required />
+              </label>
+              <label>Strike level
+                <input name="strike" type="number" step="0.0001" min="0.0001" value="100" required />
+              </label>
+            </div>
+            <div class="chips" id="tenor-chips">
+              <button type="button" data-tenor="1M" data-days="30">1M</button>
+              <button type="button" data-tenor="3M" data-days="90" class="active">3M</button>
+              <button type="button" data-tenor="6M" data-days="180">6M</button>
+              <button type="button" data-tenor="1Y" data-days="365">1Y</button>
+            </div>
+            <div class="two-way">
+              <div class="way bid">
+                <span>Bid</span>
+                <strong id="price-bid">—</strong>
               </div>
-              <div class="segmented smile-source" role="radiogroup" aria-label="Vol surface input">
-                <label><input type="radio" name="smile_source" value="quotes" checked /> RR / BF quotes</label>
-                <label><input type="radio" name="smile_source" value="custom" /> Custom points</label>
+              <div class="way offer">
+                <span>Offer</span>
+                <strong id="price-offer">—</strong>
               </div>
-              <div id="quotes-block">
+            </div>
+            <p id="price-meta" class="meta">Set expiry and strike. The surface lives on Market.</p>
+            <button type="submit" class="price-btn" id="price-btn">Price</button>
+          </article>
+        </section>
+
+        <section id="page-market" class="page hidden">
+          <p class="lede">
+            Edit the 1M / 3M / 6M / 1Y vol surface and swap points. Every market input is bid / offer.
+            Other expiries interpolate total variance and swap points. Custom points are the typed
+            strikes; the pricer fills the rest.
+          </p>
+
+          <div class="layout">
+            <div class="col">
+              <article class="card">
+                <header class="card-head">
+                  <h2>Cash</h2>
+                  <span class="hint">Decimals enter as percent</span>
+                </header>
                 <div class="grid two">
-                  <label>ATM vol %
-                    <input name="atm_vol_pct" type="number" step="0.01" min="0.01" value="20" required />
+                  <label>Value date
+                    <input name="value_date" type="date" required />
                   </label>
-                  <label>25Δ risk reversal %
-                    <input name="rr_pct" type="number" step="0.01" value="-1.20" required />
-                  </label>
-                  <label>25Δ butterfly %
-                    <input name="bf_pct" type="number" step="0.01" value="0.40" required />
-                  </label>
-                  <label>10Δ risk reversal %
-                    <input name="rr_10_pct" type="number" step="0.01" value="-2.20" required />
-                  </label>
-                  <label>10Δ butterfly %
-                    <input name="bf_10_pct" type="number" step="0.01" value="0.85" required />
+                  <label>Swap point scale
+                    <input name="swap_scale" type="number" step="any" min="0.0001" value="1" />
                   </label>
                 </div>
+                <table class="bo-table">
+                  <thead>
+                    <tr><th></th><th>Bid</th><th>Offer</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th>Spot</th>
+                      <td><input name="spot_bid" type="number" step="0.0001" min="0.0001" value="99.98" /></td>
+                      <td><input name="spot_offer" type="number" step="0.0001" min="0.0001" value="100.02" /></td>
+                    </tr>
+                    <tr>
+                      <th>Rate %</th>
+                      <td><input name="rate_bid_pct" type="number" step="0.01" value="4.98" /></td>
+                      <td><input name="rate_offer_pct" type="number" step="0.01" value="5.02" /></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p class="hint">
+                  Forward = spot + swap points / scale. Discounting uses the rate; dividend / q is
+                  implied from the forward.
+                </p>
+              </article>
+
+              <article class="card">
+                <header class="card-head">
+                  <h2>Swap points</h2>
+                  <span class="hint">1 month, 3 months, 6 months, 1 year</span>
+                </header>
+                <div class="table-scroll">
+                  <table class="bo-table" id="swap-table">
+                    <thead>
+                      <tr>
+                        <th>Tenor</th>
+                        <th>Bid</th>
+                        <th>Offer</th>
+                        <th>Fwd bid</th>
+                        <th>Fwd offer</th>
+                      </tr>
+                    </thead>
+                    <tbody id="swap-body"></tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article class="card">
+                <header class="card-head">
+                  <h2>Vol surface</h2>
+                  <span class="hint">Type and edit strike / tenor vols. Bid and offer in percent.</span>
+                </header>
+                <div class="table-scroll">
+                  <table class="vol-grid" id="vol-grid">
+                    <thead id="vol-head"></thead>
+                    <tbody id="vol-body"></tbody>
+                  </table>
+                </div>
+                <div class="custom-actions">
+                  <button type="button" id="add-strike" class="ghost small">Add strike</button>
+                  <button type="button" id="remove-strike" class="ghost small">Remove last strike</button>
+                </div>
+              </article>
+
+              <article class="card">
+                <header class="card-head">
+                  <h2>Fill from RR / BF</h2>
+                  <span class="hint">Optional seed for the grid</span>
+                </header>
+                <table class="bo-table">
+                  <thead>
+                    <tr><th></th><th>Bid</th><th>Offer</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th>ATM vol %</th>
+                      <td><input name="atm_bid_pct" type="number" step="0.01" value="19.90" /></td>
+                      <td><input name="atm_offer_pct" type="number" step="0.01" value="20.10" /></td>
+                    </tr>
+                    <tr>
+                      <th>25Δ risk reversal %</th>
+                      <td><input name="rr_bid_pct" type="number" step="0.01" value="-1.30" /></td>
+                      <td><input name="rr_offer_pct" type="number" step="0.01" value="-1.10" /></td>
+                    </tr>
+                    <tr>
+                      <th>25Δ butterfly %</th>
+                      <td><input name="bf_bid_pct" type="number" step="0.01" value="0.35" /></td>
+                      <td><input name="bf_offer_pct" type="number" step="0.01" value="0.45" /></td>
+                    </tr>
+                    <tr>
+                      <th>10Δ risk reversal %</th>
+                      <td><input name="rr_10_bid_pct" type="number" step="0.01" value="-2.30" /></td>
+                      <td><input name="rr_10_offer_pct" type="number" step="0.01" value="-2.10" /></td>
+                    </tr>
+                    <tr>
+                      <th>10Δ butterfly %</th>
+                      <td><input name="bf_10_bid_pct" type="number" step="0.01" value="0.80" /></td>
+                      <td><input name="bf_10_offer_pct" type="number" step="0.01" value="0.90" /></td>
+                    </tr>
+                  </tbody>
+                </table>
                 <p class="formula">
                   σ<sub>Δc</sub> = ATM + BF<sub>Δ</sub> + RR<sub>Δ</sub>/2 &nbsp;·&nbsp;
                   σ<sub>Δp</sub> = ATM + BF<sub>Δ</sub> − RR<sub>Δ</sub>/2
                   &nbsp; for Δ = 10 and 25
                 </p>
-              </div>
-              <div id="custom-block" class="hidden">
-                <p class="hint">
-                  Type strike / vol (%) nodes. The pricer interpolates every other strike in
-                  log-moneyness (PCHIP) and holds the wings flat.
-                </p>
-                <div id="custom-points" class="custom-points"></div>
                 <div class="custom-actions">
-                  <button type="button" id="add-point" class="ghost small">Add point</button>
-                  <button type="button" id="load-from-quotes" class="ghost small">Load from RR / BF</button>
+                  <button type="button" id="fill-active" class="ghost small">Load from RR / BF into active tenor</button>
+                  <button type="button" id="fill-all" class="ghost small">Fill all tenors</button>
                 </div>
-                <label class="paste-label">Or paste strike:vol% pairs
-                  <input
-                    id="custom-paste"
-                    type="text"
-                    placeholder="80:24, 90:21.5, 100:20, 110:19.2, 120:18.8"
-                  />
-                </label>
-              </div>
-            </article>
+                <p class="hint">
+                  Custom points on the grid are yours to edit after a fill. The pricer interpolates
+                  the rest of each smile.
+                </p>
+              </article>
 
-            <article class="card">
-              <header class="card-head">
-                <h2>Smile</h2>
-                <span id="strike-vol" class="pill">strike vol —</span>
-              </header>
-              <div class="chart-wrap">
-                <canvas id="smile-chart"></canvas>
-              </div>
-            </article>
+              <article class="card">
+                <header class="card-head"><h2>Contract extras</h2></header>
+                <div class="segmented" role="tablist">
+                  <label><input type="radio" name="option_style" value="european" checked /> European</label>
+                  <label><input type="radio" name="option_style" value="american" /> American</label>
+                  <label><input type="radio" name="option_style" value="barrier" /> Barrier</label>
+                </div>
+                <div id="barrier-fields" class="barrier-fields hidden">
+                  <div class="grid two">
+                    <label>Barrier type
+                      <select name="barrier_type">
+                        <option value="up_and_out">Up-and-out</option>
+                        <option value="up_and_in">Up-and-in</option>
+                        <option value="down_and_out">Down-and-out</option>
+                        <option value="down_and_in">Down-and-in</option>
+                      </select>
+                    </label>
+                    <label>Barrier
+                      <input name="barrier" type="number" step="0.0001" min="0.0001" value="120" />
+                    </label>
+                    <label>Rebate
+                      <input name="rebate" type="number" step="0.0001" min="0" value="0" />
+                    </label>
+                  </div>
+                </div>
+              </article>
 
-            <article class="card">
-              <header class="card-head">
-                <h2>Contract</h2>
-              </header>
-              <div class="segmented" role="tablist">
-                <label><input type="radio" name="option_style" value="european" checked /> European</label>
-                <label><input type="radio" name="option_style" value="american" /> American</label>
-                <label><input type="radio" name="option_style" value="barrier" /> Barrier</label>
-              </div>
-              <div class="segmented cp">
-                <label class="call"><input type="radio" name="option_type" value="call" checked /> Call</label>
-                <label class="put"><input type="radio" name="option_type" value="put" /> Put</label>
-              </div>
-              <div class="grid two">
-                <label>Strike
-                  <input name="strike" type="number" step="0.0001" min="0.0001" value="100" required />
-                </label>
-                <label>Expiry (days)
-                  <input name="expiry_days" type="number" step="1" min="1" value="90" required />
-                </label>
-              </div>
-              <div class="chips" id="tenor-chips">
-                <button type="button" data-days="7">1W</button>
-                <button type="button" data-days="30">1M</button>
-                <button type="button" data-days="90" class="active">3M</button>
-                <button type="button" data-days="180">6M</button>
-                <button type="button" data-days="365">1Y</button>
-              </div>
-              <div id="barrier-fields" class="barrier-fields hidden">
-                <div class="grid two">
-                  <label>Barrier type
-                    <select name="barrier_type">
-                      <option value="up_and_out">Up-and-out</option>
-                      <option value="up_and_in">Up-and-in</option>
-                      <option value="down_and_out">Down-and-out</option>
-                      <option value="down_and_in">Down-and-in</option>
-                    </select>
+              <article class="card">
+                <header class="card-head"><h2>Model</h2></header>
+                <div class="models">
+                  <label>
+                    <input type="radio" name="model" value="black_scholes" checked />
+                    <span>
+                      <strong>Black–Scholes</strong>
+                      <em>Analytic vanilla / barrier on the strike’s smile vol</em>
+                    </span>
                   </label>
-                  <label>Barrier
-                    <input name="barrier" type="number" step="0.0001" min="0.0001" value="120" />
+                  <label>
+                    <input type="radio" name="model" value="pde" />
+                    <span>
+                      <strong>PDE</strong>
+                      <em>QuantLib finite-difference with local vol from the smile</em>
+                    </span>
                   </label>
-                  <label>Rebate
-                    <input name="rebate" type="number" step="0.0001" min="0" value="0" />
+                  <label>
+                    <input type="radio" name="model" value="monte_carlo" />
+                    <span>
+                      <strong>Monte Carlo</strong>
+                      <em>GBM with local vol at every spot · discrete barrier · LSM</em>
+                    </span>
                   </label>
                 </div>
-              </div>
-            </article>
+                <div class="grid two mc-grid">
+                  <label>MC paths
+                    <input name="mc_paths" type="number" step="1000" min="1000" max="400000" value="40000" />
+                  </label>
+                  <label>MC steps
+                    <input name="mc_steps" type="number" step="1" min="8" max="512" value="64" />
+                  </label>
+                </div>
+                <label class="check">
+                  <input type="checkbox" name="compare_models" />
+                  Price all three models bid / offer
+                </label>
+              </article>
+            </div>
 
-            <article class="card">
-              <header class="card-head">
-                <h2>Model</h2>
-              </header>
-              <div class="models">
-                <label>
-                  <input type="radio" name="model" value="black_scholes" checked />
-                  <span>
-                    <strong>Black–Scholes</strong>
-                    <em>Analytic vanilla / barrier on the strike’s smile vol</em>
-                  </span>
-                </label>
-                <label>
-                  <input type="radio" name="model" value="pde" />
-                  <span>
-                    <strong>PDE</strong>
-                    <em>QuantLib finite-difference with local vol from the smile</em>
-                  </span>
-                </label>
-                <label>
-                  <input type="radio" name="model" value="monte_carlo" />
-                  <span>
-                    <strong>Monte Carlo</strong>
-                    <em>GBM with local vol at every spot · discrete barrier · LSM</em>
-                  </span>
-                </label>
-              </div>
-              <div class="grid two mc-grid">
-                <label>MC paths
-                  <input name="mc_paths" type="number" step="1000" min="1000" max="400000" value="40000" />
-                </label>
-                <label>MC steps
-                  <input name="mc_steps" type="number" step="1" min="8" max="512" value="64" />
-                </label>
-              </div>
-              <label class="check">
-                <input type="checkbox" name="compare_models" checked />
-                Price all three models
-              </label>
-              <button type="submit" class="price-btn" id="price-btn">Price</button>
-            </article>
-          </form>
-        </section>
+            <div class="col results-col">
+              <article class="card">
+                <header class="card-head">
+                  <h2>Smile</h2>
+                  <span id="strike-vol" class="pill">strike vol —</span>
+                </header>
+                <div class="chart-wrap">
+                  <canvas id="smile-chart"></canvas>
+                </div>
+              </article>
 
-        <section class="col results-col">
-          <article class="card hero">
+              <article class="card">
+                <header class="card-head">
+                  <h2>Model comparison</h2>
+                </header>
+                <table class="cmp">
+                  <thead>
+                    <tr>
+                      <th>Model</th>
+                      <th>Bid</th>
+                      <th>Offer</th>
+                      <th>Std err</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cmp-body">
+                    <tr><td colspan="4" class="empty">No run yet</td></tr>
+                  </tbody>
+                </table>
+              </article>
+
+              <article class="card">
+                <header class="card-head">
+                  <h2>Payoff</h2>
+                </header>
+                <div class="chart-wrap">
+                  <canvas id="payoff-chart"></canvas>
+                </div>
+              </article>
+
+              <article class="card notes">
+                <header class="card-head"><h2>Notes</h2></header>
+                <ul id="warnings" class="warn-list">
+                  <li>Greeks: vega per 1 vol point, theta per day, rho per 1% rate.</li>
+                </ul>
+              </article>
+            </div>
+          </div>
+
+          <article class="card surface-card">
             <header class="card-head">
-              <h2>Premium</h2>
-              <span id="model-pill" class="pill">Black–Scholes</span>
+              <h2>Priced slice</h2>
+              <span class="hint">Interpolated smile at the selected expiry. Click a row to set the strike.</span>
             </header>
-            <p id="price-value" class="price">—</p>
-            <p id="price-meta" class="meta">Configure the market and press Price, or edit any field.</p>
-            <div class="greeks" id="greeks">
-              <div><span>Delta</span><strong id="g-delta">—</strong></div>
-              <div><span>Gamma</span><strong id="g-gamma">—</strong></div>
-              <div><span>Vega</span><strong id="g-vega">—</strong></div>
-              <div><span>Theta</span><strong id="g-theta">—</strong></div>
-              <div><span>Rho</span><strong id="g-rho">—</strong></div>
-              <div><span>Strike vol</span><strong id="g-vol">—</strong></div>
+            <div class="table-scroll">
+              <table class="surface">
+                <thead>
+                  <tr>
+                    <th>Strike</th>
+                    <th>Pillar</th>
+                    <th>Vol bid</th>
+                    <th>Vol offer</th>
+                    <th>Call bid</th>
+                    <th>Call offer</th>
+                    <th>Put bid</th>
+                    <th>Put offer</th>
+                  </tr>
+                </thead>
+                <tbody id="surface-body">
+                  <tr><td colspan="8" class="empty">No run yet</td></tr>
+                </tbody>
+              </table>
             </div>
           </article>
-
-          <article class="card">
-            <header class="card-head">
-              <h2>Model comparison</h2>
-            </header>
-            <table class="cmp">
-              <thead>
-                <tr>
-                  <th>Model</th>
-                  <th>Price</th>
-                  <th>Std err</th>
-                </tr>
-              </thead>
-              <tbody id="cmp-body">
-                <tr><td colspan="3" class="empty">No run yet</td></tr>
-              </tbody>
-            </table>
-          </article>
-
-          <article class="card">
-            <header class="card-head">
-              <h2>Payoff</h2>
-            </header>
-            <div class="chart-wrap">
-              <canvas id="payoff-chart"></canvas>
-            </div>
-          </article>
-
-          <article class="card notes">
-            <header class="card-head"><h2>Notes</h2></header>
-            <ul id="warnings" class="warn-list">
-              <li>Greeks: vega per 1 vol point, theta per day, rho per 1% rate.</li>
-            </ul>
-          </article>
         </section>
-      </main>
-
-      <article class="card surface-card">
-        <header class="card-head">
-          <h2>Vol surface</h2>
-          <span class="hint">Each row uses its own interpolated vol. Rows marked Input are the points you typed. Click a row to reprice that strike.</span>
-        </header>
-        <div class="table-scroll">
-          <table class="surface">
-            <thead>
-              <tr>
-                <th>Strike</th>
-                <th>Pillar</th>
-                <th>Vol</th>
-                <th>Call</th>
-                <th>Put</th>
-                <th>Call Δ</th>
-                <th>Put Δ</th>
-              </tr>
-            </thead>
-            <tbody id="surface-body">
-              <tr><td colspan="7" class="empty">No run yet</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
+      </form>
     </div>
     <script src="/static/app.js"></script>
   </body>

@@ -54,6 +54,14 @@ def build_surface(
     t: float,
     selected_strike: float,
     n: int = 23,
+    bid_smile: VolSmile | None = None,
+    offer_smile: VolSmile | None = None,
+    bid_spot: float | None = None,
+    offer_spot: float | None = None,
+    bid_rate: float | None = None,
+    offer_rate: float | None = None,
+    bid_dividend: float | None = None,
+    offer_dividend: float | None = None,
 ) -> list[SurfaceRow]:
     """Price a European call and put on every strike with that strike's smile vol."""
     rows: list[SurfaceRow] = []
@@ -63,6 +71,47 @@ def build_surface(
         put = vollib_price(False, spot, strike, t, rate, vol, dividend)
         call_g = vollib_greeks(True, spot, strike, t, rate, vol, dividend)
         put_g = vollib_greeks(False, spot, strike, t, rate, vol, dividend)
+        vol_bid = bid_smile.vol_at(strike) if bid_smile is not None else None
+        vol_offer = offer_smile.vol_at(strike) if offer_smile is not None else None
+        call_bid = call_offer = put_bid = put_offer = None
+        if bid_smile is not None:
+            call_bid = vollib_price(
+                True,
+                bid_spot if bid_spot is not None else spot,
+                strike,
+                t,
+                bid_rate if bid_rate is not None else rate,
+                vol_bid,
+                bid_dividend if bid_dividend is not None else dividend,
+            )
+            put_bid = vollib_price(
+                False,
+                bid_spot if bid_spot is not None else spot,
+                strike,
+                t,
+                bid_rate if bid_rate is not None else rate,
+                vol_bid,
+                bid_dividend if bid_dividend is not None else dividend,
+            )
+        if offer_smile is not None:
+            call_offer = vollib_price(
+                True,
+                offer_spot if offer_spot is not None else spot,
+                strike,
+                t,
+                offer_rate if offer_rate is not None else rate,
+                vol_offer,
+                offer_dividend if offer_dividend is not None else dividend,
+            )
+            put_offer = vollib_price(
+                False,
+                offer_spot if offer_spot is not None else spot,
+                strike,
+                t,
+                offer_rate if offer_rate is not None else rate,
+                vol_offer,
+                offer_dividend if offer_dividend is not None else dividend,
+            )
         rows.append(
             SurfaceRow(
                 strike=strike,
@@ -73,6 +122,12 @@ def build_surface(
                 put_delta=put_g.delta,
                 pillar=_pillar_label(smile, strike),
                 selected=abs(strike - selected_strike) <= 1e-6,
+                vol_bid=vol_bid,
+                vol_offer=vol_offer,
+                call_bid=call_bid,
+                call_offer=call_offer,
+                put_bid=put_bid,
+                put_offer=put_offer,
             )
         )
     return rows
