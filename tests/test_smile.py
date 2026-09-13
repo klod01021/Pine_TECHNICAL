@@ -1,6 +1,9 @@
+import math
+
 import pytest
 
-from option_pricer.pricing.smile import build_smile
+from option_pricer.pricing.smile import build_smile, build_smile_from_points, smile_from_request
+from option_pricer.pricing.schemas import PriceRequest, SmileSource, VolPoint
 
 
 def test_rr_and_butterfly_reconstruct_wing_vols():
@@ -55,3 +58,55 @@ def test_quoted_10d_steepens_far_wings_vs_25d_only():
     assert with_10.vol_at(with_10.strike_25d_put) == pytest.approx(with_10.vol_25d_put)
     assert with_10.vol_at(70) == pytest.approx(with_10.vol_10d_put)
     assert with_10.vol_at(70) > only_25.vol_at(70)
+
+
+def test_custom_points_are_honored_and_interpolated():
+    smile = build_smile_from_points(
+        100, 0.0, 0.0, 1.0, [(80, 0.24), (100, 0.20), (120, 0.18)]
+    )
+    assert smile.source == "custom"
+    assert smile.vol_at(80) == pytest.approx(0.24)
+    assert smile.vol_at(100) == pytest.approx(0.20)
+    assert smile.vol_at(120) == pytest.approx(0.18)
+    mid = smile.vol_at(90)
+    assert 0.20 < mid < 0.24
+    assert smile.vol_at(60) == pytest.approx(0.24)
+    assert smile.vol_at(140) == pytest.approx(0.18)
+    assert [p.label for p in smile.curve().pillars] == ["Input", "Input", "Input"]
+
+
+def test_two_point_custom_smile_is_linear_in_log_moneyness():
+    smile = build_smile_from_points(100, 0.0, 0.0, 1.0, [(80, 0.24), (120, 0.16)])
+    x80 = math.log(80 / 100)
+    x120 = math.log(120 / 100)
+    expected = 0.24 + (0.0 - x80) / (x120 - x80) * (0.16 - 0.24)
+    assert smile.vol_at(100) == pytest.approx(expected)
+    assert smile.atm_vol == pytest.approx(expected)
+    assert smile.ten_delta_source == "custom"
+
+
+def test_custom_smile_rejects_fewer_than_two_points():
+    with pytest.raises(ValueError, match="at least two"):
+        build_smile_from_points(100, 0.0, 0.0, 1.0, [(100, 0.2)])
+
+
+def test_smile_from_request_uses_custom_points():
+    request = PriceRequest(
+        spot=100,
+        strike=100,
+        rate=0.05,
+        dividend=0.0,
+        atm_vol=0.20,
+        rr_25d=0.0,
+        bf_25d=0.0,
+        expiry_years=1.0,
+        smile_source=SmileSource.custom,
+        custom_vols=[
+            VolPoint(strike=90, vol=0.22),
+            VolPoint(strike=110, vol=0.18),
+        ],
+    )
+    smile = smile_from_request(request, 1.0)
+    assert smile.source == "custom"
+    assert smile.vol_at(90) == pytest.approx(0.22)
+    assert smile.vol_at(110) == pytest.approx(0.18)

@@ -53,6 +53,7 @@ def _smile_variance_surface(today: ql.Date, maturity: ql.Date, smile) -> ql.Blac
         smile.strike_atm,
         smile.strike_25d_call,
         smile.strike_10d_call,
+        *[float(k) for k, _ in getattr(smile, "input_nodes", ())],
     ]
     strikes = sorted({round(float(k), 8) for k in grid + extras if k > 0})
     matrix = ql.Matrix(len(strikes), 1)

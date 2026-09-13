@@ -4,7 +4,14 @@ import pytest
 
 from option_pricer.pricing.black_scholes import vollib_price
 from option_pricer.pricing.engine import price_option
-from option_pricer.pricing.schemas import ModelName, OptionStyle, OptionType, PriceRequest
+from option_pricer.pricing.schemas import (
+    ModelName,
+    OptionStyle,
+    OptionType,
+    PriceRequest,
+    SmileSource,
+    VolPoint,
+)
 from option_pricer.pricing.smile import build_smile
 from option_pricer.pricing.surface import build_surface
 
@@ -74,3 +81,21 @@ def test_selected_contract_price_matches_surface_call_at_that_strike():
     match = next(row for row in result.surface if abs(row.strike - 110) < 1e-6)
     assert result.price == pytest.approx(match.call, rel=2e-4, abs=1e-3)
     assert result.vol_used == pytest.approx(match.vol, rel=1e-10)
+
+
+def test_custom_surface_marks_input_strikes():
+    result = price_option(
+        _req(
+            smile_source=SmileSource.custom,
+            custom_vols=[
+                VolPoint(strike=90, vol=0.22),
+                VolPoint(strike=100, vol=0.20),
+                VolPoint(strike=110, vol=0.19),
+            ],
+        )
+    )
+    inputs = [row for row in result.surface if row.pillar == "Input"]
+    assert {round(row.strike) for row in inputs} >= {90, 100, 110}
+    at_100 = next(row for row in result.surface if abs(row.strike - 100) < 1e-6)
+    assert at_100.vol == pytest.approx(0.20)
+    assert result.details["smile_source"] == "custom"

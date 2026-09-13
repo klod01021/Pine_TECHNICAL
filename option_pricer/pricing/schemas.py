@@ -32,6 +32,16 @@ class ModelName(str, Enum):
     monte_carlo = "monte_carlo"
 
 
+class SmileSource(str, Enum):
+    quotes = "quotes"
+    custom = "custom"
+
+
+class VolPoint(BaseModel):
+    strike: float = Field(gt=0)
+    vol: float = Field(gt=0, le=5, description="Implied vol as a decimal (0.20 = 20%)")
+
+
 class PriceRequest(BaseModel):
     """Market and contract inputs. Vols and rates are decimals (0.20 = 20%)."""
 
@@ -70,6 +80,8 @@ class PriceRequest(BaseModel):
     compare_models: bool = True
     seed: int = 42
     surface_points: int = Field(default=23, ge=11, le=61)
+    smile_source: SmileSource = SmileSource.quotes
+    custom_vols: list[VolPoint] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_barrier_fields(self) -> "PriceRequest":
@@ -84,6 +96,8 @@ class PriceRequest(BaseModel):
             else:
                 if self.barrier >= self.spot:
                     raise ValueError("Down barrier must be strictly below spot")
+        if self.smile_source == SmileSource.custom and len(self.custom_vols) < 2:
+            raise ValueError("Custom smile needs at least two strike/vol points")
         return self
 
 

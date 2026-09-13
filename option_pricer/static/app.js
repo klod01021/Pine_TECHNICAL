@@ -2,10 +2,13 @@ const form = document.getElementById("pricer-form");
 const priceBtn = document.getElementById("price-btn");
 const strikeVolEl = document.getElementById("strike-vol");
 const warningsEl = document.getElementById("warnings");
+const customPointsEl = document.getElementById("custom-points");
+const customPasteEl = document.getElementById("custom-paste");
 
 const fmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 });
 const fmtPct = (x) => `${(x * 100).toFixed(2)}%`;
 const fmtNum = (x) => (x === null || x === undefined || Number.isNaN(x) ? "—" : fmt.format(x));
+const round4 = (x) => Number(Number(x).toFixed(4));
 
 const chartDefaults = {
   responsive: true,
@@ -97,8 +100,60 @@ function selected(name) {
   return form.querySelector(`input[name="${name}"]:checked`).value;
 }
 
+function smileSource() {
+  return selected("smile_source");
+}
+
+function defaultPoints() {
+  const spot = Number(form.elements.spot.value) || 100;
+  const atm = Number(form.elements.atm_vol_pct.value) || 20;
+  return [
+    { strike: round4(spot * 0.8), volPct: round4(atm + 4) },
+    { strike: round4(spot * 0.9), volPct: round4(atm + 1.5) },
+    { strike: round4(spot * 1.0), volPct: round4(atm) },
+    { strike: round4(spot * 1.1), volPct: round4(Math.max(0.01, atm - 0.8)) },
+    { strike: round4(spot * 1.2), volPct: round4(Math.max(0.01, atm - 1.2)) },
+  ];
+}
+
+function readCustomPoints() {
+  return [...customPointsEl.querySelectorAll(".vol-row")]
+    .map((row) => ({
+      strike: Number(row.querySelector(".pt-strike").value),
+      volPct: Number(row.querySelector(".pt-vol").value),
+    }))
+    .filter((p) => p.strike > 0 && p.volPct > 0);
+}
+
+function renderCustomPoints(points) {
+  const rows = points.length ? points : defaultPoints();
+  customPointsEl.innerHTML = rows
+    .map(
+      (p) => `<div class="vol-row">
+        <label>Strike
+          <input class="pt-strike" type="number" step="0.0001" min="0.0001" value="${p.strike}" />
+        </label>
+        <label>Vol %
+          <input class="pt-vol" type="number" step="0.01" min="0.01" value="${p.volPct}" />
+        </label>
+        <button type="button" class="ghost remove" aria-label="Remove point">×</button>
+      </div>`
+    )
+    .join("");
+}
+
+function toggleSmileSource() {
+  const custom = smileSource() === "custom";
+  document.getElementById("quotes-block").classList.toggle("hidden", custom);
+  document.getElementById("custom-block").classList.toggle("hidden", !custom);
+  if (custom && !customPointsEl.querySelector(".vol-row")) {
+    renderCustomPoints(defaultPoints());
+  }
+}
+
 function payload() {
   const style = selected("option_style");
+  const source = smileSource();
   const body = {
     spot: Number(form.elements.spot.value),
     strike: Number(form.elements.strike.value),
@@ -117,7 +172,14 @@ function payload() {
     mc_steps: Number(form.elements.mc_steps.value),
     compare_models: form.elements.compare_models.checked,
     rebate: Number(form.elements.rebate.value || 0),
+    smile_source: source,
   };
+  if (source === "custom") {
+    body.custom_vols = readCustomPoints().map((p) => ({
+      strike: p.strike,
+      vol: p.volPct / 100,
+    }));
+  }
   if (style === "barrier") {
     body.barrier_type = form.elements.barrier_type.value;
     body.barrier = Number(form.elements.barrier.value);
@@ -147,19 +209,14 @@ async function fetchJson(url, body) {
 
 function renderSmile(smile, strikeVol) {
   strikeVolEl.textContent = `strike vol ${fmtPct(strikeVol)}`;
+  const custom = (smile.pillars || []).some((p) => p.label === "Input");
   smileChart.data.labels = smile.strikes.map((k) => Number(k.toFixed(2)));
-  smileChart.data.datasets[0].data = smile.vols;
-  smileChart.data.datasets[1].data = smile.strikes.map((k) => {
-    const pillar = smile.pillars.find((p) => Math.abs(p.strike - k) < 1e-8);
-    return pillar ? pillar.vol : null;
-  });
-  const pillarPoints = smile.pillars.map((p) => ({ x: Number(p.strike.toFixed(2)), y: p.vol }));
   smileChart.data.datasets[1] = {
-    label: "10Δ / 25Δ / ATM",
-    data: pillarPoints,
+    label: custom ? "Input points" : "10Δ / 25Δ / ATM",
+    data: smile.pillars.map((p) => ({ x: Number(p.strike.toFixed(4)), y: p.vol })),
     showLine: false,
     pointRadius: 5,
-    pointBackgroundColor: "#6ee7b7",
+    pointBackgroundColor: custom ? "#d4a017" : "#6ee7b7",
     parsing: false,
   };
   smileChart.options.parsing = false;
@@ -213,9 +270,12 @@ function renderResult(data) {
   document.getElementById("cmp-body").innerHTML =
     rows.join("") || `<tr><td colspan="3" class="empty">No comparison</td></tr>`;
 
+  const custom = data.details && data.details.smile_source === "custom";
   const notes = [
     "Greeks: vega per 1 vol point, theta per day, rho per 1% rate.",
-    `Fitted 10Δ put ${fmtPct(data.smile.vol_10d_put)}, 25Δ put ${fmtPct(data.smile.vol_25d_put)}, ATM ${fmtPct(data.smile.vol_atm)}, 25Δ call ${fmtPct(data.smile.vol_25d_call)}, 10Δ call ${fmtPct(data.smile.vol_10d_call)}.`,
+    custom
+      ? `Custom smile with ${data.details.input_points} input points. Other strikes interpolated in log-moneyness; wings held flat.`
+      : `Fitted 10Δ put ${fmtPct(data.smile.vol_10d_put)}, 25Δ put ${fmtPct(data.smile.vol_25d_put)}, ATM ${fmtPct(data.smile.vol_atm)}, 25Δ call ${fmtPct(data.smile.vol_25d_call)}, 10Δ call ${fmtPct(data.smile.vol_10d_call)}.`,
     ...(data.warnings || []),
   ];
   warningsEl.innerHTML = notes.map((n) => `<li>${n}</li>`).join("");
@@ -269,6 +329,40 @@ async function refreshSmile() {
   }
 }
 
+function parsePastedPoints(text) {
+  return text
+    .split(/[,;\n]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const match = part.match(/(-?\d+(?:\.\d+)?)\s*[:=\s]\s*(-?\d+(?:\.\d+)?)/);
+      if (!match) return null;
+      const strike = Number(match[1]);
+      const volPct = Number(match[2]);
+      if (!(strike > 0) || !(volPct > 0)) return null;
+      return { strike: round4(strike), volPct: round4(volPct) };
+    })
+    .filter(Boolean);
+}
+
+async function loadFromQuotes() {
+  try {
+    const body = payload();
+    body.smile_source = "quotes";
+    delete body.custom_vols;
+    const data = await fetchJson("/api/smile", body);
+    const points = (data.smile.pillars || []).map((p) => ({
+      strike: round4(p.strike),
+      volPct: round4(p.vol * 100),
+    }));
+    if (points.length < 2) throw new Error("Could not read RR / BF pillars");
+    renderCustomPoints(points);
+    schedulePrice();
+  } catch (err) {
+    warningsEl.innerHTML = `<li>${err.message}</li>`;
+  }
+}
+
 let timer = null;
 function schedulePrice() {
   clearTimeout(timer);
@@ -280,16 +374,48 @@ form.addEventListener("submit", (event) => {
   price();
 });
 
-form.addEventListener("input", () => {
+form.addEventListener("input", (event) => {
+  if (event.target.id === "custom-paste") return;
   toggleBarrier();
+  toggleSmileSource();
   refreshSmile();
   schedulePrice();
 });
 
-form.addEventListener("change", () => {
+form.addEventListener("change", (event) => {
+  if (event.target.id === "custom-paste") {
+    const points = parsePastedPoints(event.target.value);
+    if (points.length >= 2) {
+      renderCustomPoints(points);
+      event.target.value = "";
+      schedulePrice();
+    }
+    return;
+  }
   toggleBarrier();
+  toggleSmileSource();
   schedulePrice();
 });
+
+document.getElementById("add-point").addEventListener("click", () => {
+  const points = readCustomPoints();
+  const last = points[points.length - 1];
+  const nextStrike = last ? round4(last.strike * 1.05) : round4(Number(form.elements.spot.value) || 100);
+  const nextVol = last ? last.volPct : 20;
+  renderCustomPoints([...points, { strike: nextStrike, volPct: nextVol }]);
+  schedulePrice();
+});
+
+customPointsEl.addEventListener("click", (event) => {
+  const button = event.target.closest(".remove");
+  if (!button) return;
+  const rows = [...customPointsEl.querySelectorAll(".vol-row")];
+  if (rows.length <= 2) return;
+  button.closest(".vol-row").remove();
+  schedulePrice();
+});
+
+document.getElementById("load-from-quotes").addEventListener("click", loadFromQuotes);
 
 document.getElementById("tenor-chips").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-days]");
@@ -307,4 +433,6 @@ document.getElementById("surface-body").addEventListener("click", (event) => {
 });
 
 toggleBarrier();
+toggleSmileSource();
+renderCustomPoints(defaultPoints());
 price();

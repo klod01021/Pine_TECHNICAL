@@ -13,7 +13,7 @@ from option_pricer.pricing.schemas import (
     PriceRequest,
     PriceResponse,
 )
-from option_pricer.pricing.smile import build_smile
+from option_pricer.pricing.smile import smile_from_request
 from option_pricer.pricing.surface import build_surface
 
 MODEL_LABELS = {
@@ -25,17 +25,7 @@ MODEL_LABELS = {
 
 def price_option(request: PriceRequest) -> PriceResponse:
     days, t = year_fraction(request.expiry_years)
-    smile = build_smile(
-        spot=request.spot,
-        rate=request.rate,
-        dividend=request.dividend,
-        t=t,
-        atm_vol=request.atm_vol,
-        rr_25d=request.rr_25d,
-        bf_25d=request.bf_25d,
-        rr_10d=request.rr_10d,
-        bf_10d=request.bf_10d,
-    )
+    smile = smile_from_request(request, t)
     vol = smile.vol_at(request.strike)
     warnings = list(smile.warnings)
     is_call = request.option_type.value == "call"
@@ -50,10 +40,17 @@ def price_option(request: PriceRequest) -> PriceResponse:
         warnings.append(
             "Black-Scholes uses a continuous barrier; Monte Carlo monitors the barrier on a discrete grid."
         )
-    warnings.append(
-        "The vol surface prices every listed strike with its own implied vol. "
-        "PDE and Monte Carlo use that smile as local vol along the spot path."
-    )
+    if smile.source == "custom":
+        warnings.append(
+            "Custom smile: input strikes are honored exactly; other strikes are "
+            "interpolated in log-moneyness with flat wings. "
+            "PDE and Monte Carlo use that smile as local vol along the spot path."
+        )
+    else:
+        warnings.append(
+            "The vol surface prices every listed strike with its own implied vol. "
+            "PDE and Monte Carlo use that smile as local vol along the spot path."
+        )
 
     primary = _run_model(
         request.model,
@@ -146,6 +143,8 @@ def price_option(request: PriceRequest) -> PriceResponse:
         "vol_25d_call": smile.vol_25d_call,
         "vol_10d_call": smile.vol_10d_call,
         "ten_delta_source": smile.ten_delta_source,
+        "smile_source": smile.source,
+        "input_points": len(smile.input_nodes),
         "strike_vol": vol,
         "paths": primary.get("paths"),
         "steps": primary.get("steps"),

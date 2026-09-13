@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from option_pricer.pricing.engine import price_option
 from option_pricer.pricing.schemas import PriceRequest, PriceResponse
-from option_pricer.pricing.smile import build_smile
+from option_pricer.pricing.smile import smile_from_request
 from option_pricer.pricing.ql_market import year_fraction
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -46,17 +46,7 @@ def api_price(request: PriceRequest) -> PriceResponse:
 @app.post("/api/smile")
 def api_smile(request: PriceRequest) -> dict:
     _, t = year_fraction(request.expiry_years)
-    smile = build_smile(
-        spot=request.spot,
-        rate=request.rate,
-        dividend=request.dividend,
-        t=t,
-        atm_vol=request.atm_vol,
-        rr_25d=request.rr_25d,
-        bf_25d=request.bf_25d,
-        rr_10d=request.rr_10d,
-        bf_10d=request.bf_10d,
-    )
+    smile = smile_from_request(request, t)
     return {
         "smile": smile.curve().model_dump(),
         "vol_at_strike": smile.vol_at(request.strike),

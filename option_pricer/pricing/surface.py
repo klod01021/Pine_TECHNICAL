@@ -10,6 +10,9 @@ from option_pricer.pricing.smile import VolSmile
 
 
 def _pillar_label(smile: VolSmile, strike: float) -> str | None:
+    for node, _vol in smile.input_nodes:
+        if abs(strike - node) <= max(0.01, 0.0005 * smile.spot):
+            return "Input"
     marks = (
         (smile.strike_10d_put, "10Δ put"),
         (smile.strike_25d_put, "25Δ put"),
@@ -36,6 +39,7 @@ def strike_grid(smile: VolSmile, selected_strike: float, n: int = 23) -> list[fl
         smile.strike_atm,
         smile.strike_25d_call,
         smile.strike_10d_call,
+        *[k for k, _ in smile.input_nodes],
     ]
     strikes = sorted({round(float(k), 6) for k in grid + extras if k > 0})
     return strikes

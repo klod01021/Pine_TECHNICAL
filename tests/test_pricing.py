@@ -4,7 +4,14 @@ import pytest
 
 from option_pricer.pricing.black_scholes import vollib_price
 from option_pricer.pricing.engine import price_option
-from option_pricer.pricing.schemas import ModelName, OptionStyle, OptionType, PriceRequest
+from option_pricer.pricing.schemas import (
+    ModelName,
+    OptionStyle,
+    OptionType,
+    PriceRequest,
+    SmileSource,
+    VolPoint,
+)
 
 
 def _req(**overrides) -> PriceRequest:
@@ -101,4 +108,34 @@ def test_smile_changes_otm_put_price():
         _req(option_type=OptionType.put, strike=80, rr_25d=-0.04, bf_25d=0.005)
     )
     assert skewed.vol_used > flat.vol_used
+    assert skewed.price > flat.price
+
+
+def test_custom_smile_changes_otm_put_price():
+    flat = price_option(
+        _req(
+            option_type=OptionType.put,
+            strike=80,
+            smile_source=SmileSource.custom,
+            custom_vols=[
+                VolPoint(strike=80, vol=0.20),
+                VolPoint(strike=100, vol=0.20),
+                VolPoint(strike=120, vol=0.20),
+            ],
+        )
+    )
+    skewed = price_option(
+        _req(
+            option_type=OptionType.put,
+            strike=80,
+            smile_source=SmileSource.custom,
+            custom_vols=[
+                VolPoint(strike=80, vol=0.28),
+                VolPoint(strike=100, vol=0.20),
+                VolPoint(strike=120, vol=0.16),
+            ],
+        )
+    )
+    assert skewed.vol_used == pytest.approx(0.28)
+    assert flat.vol_used == pytest.approx(0.20)
     assert skewed.price > flat.price

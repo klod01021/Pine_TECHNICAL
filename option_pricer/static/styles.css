@@ -160,6 +160,61 @@ select:focus {
   font-size: 12px;
 }
 
+.smile-source {
+  grid-template-columns: 1fr 1fr;
+  margin: 14px 0 12px;
+}
+
+.custom-points {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 8px;
+}
+
+.vol-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.custom-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.ghost {
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ghost.small {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.ghost:hover {
+  border-color: var(--gold);
+  color: var(--gold-2);
+}
+
+.ghost.remove {
+  min-width: 38px;
+  padding: 10px 8px;
+  color: var(--rose);
+}
+
+.paste-label {
+  margin-top: 4px;
+}
+
 .segmented {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

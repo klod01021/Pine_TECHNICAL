@@ -25,7 +25,8 @@
           </div>
         </div>
         <p class="lede">
-          Black–Scholes with a full 10Δ / 25Δ / ATM vol surface. Every strike is priced; PDE and Monte Carlo use local vol.
+          Black–Scholes with a full vol surface. Build it from 10Δ / 25Δ RR–BF quotes, or type your own
+          strike / vol points and let the pricer interpolate the rest. PDE and Monte Carlo use local vol.
         </p>
       </header>
 
@@ -41,21 +42,6 @@
                 <label>Spot
                   <input name="spot" type="number" step="0.0001" min="0.0001" value="100" required />
                 </label>
-                <label>ATM vol %
-                  <input name="atm_vol_pct" type="number" step="0.01" min="0.01" value="20" required />
-                </label>
-                <label>25Δ risk reversal %
-                  <input name="rr_pct" type="number" step="0.01" value="-1.20" required />
-                </label>
-                <label>25Δ butterfly %
-                  <input name="bf_pct" type="number" step="0.01" value="0.40" required />
-                </label>
-                <label>10Δ risk reversal %
-                  <input name="rr_10_pct" type="number" step="0.01" value="-2.20" required />
-                </label>
-                <label>10Δ butterfly %
-                  <input name="bf_10_pct" type="number" step="0.01" value="0.85" required />
-                </label>
                 <label>Rate %
                   <input name="rate_pct" type="number" step="0.01" value="5" required />
                 </label>
@@ -63,11 +49,52 @@
                   <input name="div_pct" type="number" step="0.01" value="1" required />
                 </label>
               </div>
-              <p class="formula">
-                σ<sub>Δc</sub> = ATM + BF<sub>Δ</sub> + RR<sub>Δ</sub>/2 &nbsp;·&nbsp;
-                σ<sub>Δp</sub> = ATM + BF<sub>Δ</sub> − RR<sub>Δ</sub>/2
-                &nbsp; for Δ = 10 and 25
-              </p>
+              <div class="segmented smile-source" role="radiogroup" aria-label="Vol surface input">
+                <label><input type="radio" name="smile_source" value="quotes" checked /> RR / BF quotes</label>
+                <label><input type="radio" name="smile_source" value="custom" /> Custom points</label>
+              </div>
+              <div id="quotes-block">
+                <div class="grid two">
+                  <label>ATM vol %
+                    <input name="atm_vol_pct" type="number" step="0.01" min="0.01" value="20" required />
+                  </label>
+                  <label>25Δ risk reversal %
+                    <input name="rr_pct" type="number" step="0.01" value="-1.20" required />
+                  </label>
+                  <label>25Δ butterfly %
+                    <input name="bf_pct" type="number" step="0.01" value="0.40" required />
+                  </label>
+                  <label>10Δ risk reversal %
+                    <input name="rr_10_pct" type="number" step="0.01" value="-2.20" required />
+                  </label>
+                  <label>10Δ butterfly %
+                    <input name="bf_10_pct" type="number" step="0.01" value="0.85" required />
+                  </label>
+                </div>
+                <p class="formula">
+                  σ<sub>Δc</sub> = ATM + BF<sub>Δ</sub> + RR<sub>Δ</sub>/2 &nbsp;·&nbsp;
+                  σ<sub>Δp</sub> = ATM + BF<sub>Δ</sub> − RR<sub>Δ</sub>/2
+                  &nbsp; for Δ = 10 and 25
+                </p>
+              </div>
+              <div id="custom-block" class="hidden">
+                <p class="hint">
+                  Type strike / vol (%) nodes. The pricer interpolates every other strike in
+                  log-moneyness (PCHIP) and holds the wings flat.
+                </p>
+                <div id="custom-points" class="custom-points"></div>
+                <div class="custom-actions">
+                  <button type="button" id="add-point" class="ghost small">Add point</button>
+                  <button type="button" id="load-from-quotes" class="ghost small">Load from RR / BF</button>
+                </div>
+                <label class="paste-label">Or paste strike:vol% pairs
+                  <input
+                    id="custom-paste"
+                    type="text"
+                    placeholder="80:24, 90:21.5, 100:20, 110:19.2, 120:18.8"
+                  />
+                </label>
+              </div>
             </article>
 
             <article class="card">
@@ -229,7 +256,7 @@
       <article class="card surface-card">
         <header class="card-head">
           <h2>Vol surface</h2>
-          <span class="hint">Every strike uses its own implied vol from the 10Δ / 25Δ / ATM smile. Click a row to reprice that strike.</span>
+          <span class="hint">Each row uses its own interpolated vol. Rows marked Input are the points you typed. Click a row to reprice that strike.</span>
         </header>
         <div class="table-scroll">
           <table class="surface">

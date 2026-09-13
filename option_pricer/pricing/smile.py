@@ -98,6 +98,8 @@ class VolSmile:
     coeffs: tuple[float, float, float]
     ten_delta_source: str
     warnings: tuple[str, ...] = ()
+    source: str = "quotes"
+    input_nodes: tuple[tuple[float, float], ...] = ()
 
     def __post_init__(self) -> None:
         xs = np.asarray(self.nodes_x, dtype=float)
@@ -139,13 +141,25 @@ class VolSmile:
         hi = max(hi, lo * 1.05)
         strikes = np.linspace(lo, hi, n)
         vols = [self.vol_at(k) for k in strikes]
-        pillars = [
-            SmilePillar(label="10Δ put", delta=-0.10, strike=self.strike_10d_put, vol=self.vol_10d_put),
-            SmilePillar(label="25Δ put", delta=-0.25, strike=self.strike_25d_put, vol=self.vol_25d_put),
-            SmilePillar(label="ATM", delta=0.50, strike=self.strike_atm, vol=self.atm_vol),
-            SmilePillar(label="25Δ call", delta=0.25, strike=self.strike_25d_call, vol=self.vol_25d_call),
-            SmilePillar(label="10Δ call", delta=0.10, strike=self.strike_10d_call, vol=self.vol_10d_call),
-        ]
+        if self.source == "custom" and self.input_nodes:
+            lo = min(k for k, _ in self.input_nodes) * 0.92
+            hi = max(k for k, _ in self.input_nodes) * 1.08
+            lo = max(lo, self.spot * 0.35)
+            hi = max(hi, lo * 1.05)
+            strikes = np.linspace(lo, hi, n)
+            vols = [self.vol_at(k) for k in strikes]
+            pillars = [
+                SmilePillar(label="Input", strike=float(k), vol=float(v))
+                for k, v in self.input_nodes
+            ]
+        else:
+            pillars = [
+                SmilePillar(label="10Δ put", delta=-0.10, strike=self.strike_10d_put, vol=self.vol_10d_put),
+                SmilePillar(label="25Δ put", delta=-0.25, strike=self.strike_25d_put, vol=self.vol_25d_put),
+                SmilePillar(label="ATM", delta=0.50, strike=self.strike_atm, vol=self.atm_vol),
+                SmilePillar(label="25Δ call", delta=0.25, strike=self.strike_25d_call, vol=self.vol_25d_call),
+                SmilePillar(label="10Δ call", delta=0.10, strike=self.strike_10d_call, vol=self.vol_10d_call),
+            ]
         return SmileCurve(
             strikes=strikes.tolist(),
             vols=vols,
@@ -262,4 +276,114 @@ def build_smile(
         coeffs=coeffs,
         ten_delta_source=ten_delta_source,
         warnings=tuple(warnings),
+        source="quotes",
+        input_nodes=(),
+    )
+
+
+def build_smile_from_points(
+    spot: float,
+    rate: float,
+    dividend: float,
+    t: float,
+    points: list[tuple[float, float]],
+) -> VolSmile:
+    """Interpolate a smile through user-supplied (strike, vol) points.
+
+    Interpolation is PCHIP in log-moneyness ``ln(K/F)``, with flat
+    extrapolation outside the outermost input strikes.
+    """
+    warnings: list[str] = []
+    t = max(float(t), 1.0 / 365.0)
+    forward = float(spot * np.exp((rate - dividend) * t))
+    cleaned: dict[float, float] = {}
+    for strike, vol in points:
+        if strike is None or vol is None:
+            continue
+        strike = float(strike)
+        vol = float(vol)
+        if strike <= 0 or vol <= 0:
+            continue
+        cleaned[round(strike, 8)] = _clip_vol(vol)
+    if len(cleaned) < 2:
+        raise ValueError("Enter at least two strike/vol points to interpolate the smile.")
+
+    strikes = np.array(sorted(cleaned), dtype=float)
+    vols = np.array([cleaned[k] for k in strikes], dtype=float)
+    xs, ys = _unique_nodes(np.log(strikes / forward), vols)
+    if len(xs) < 2:
+        raise ValueError("Input strikes collapsed; use at least two distinct strikes.")
+
+    def _vol_on_nodes(strike: float) -> float:
+        x = float(np.log(strike / forward))
+        if x <= xs[0]:
+            return _clip_vol(ys[0])
+        if x >= xs[-1]:
+            return _clip_vol(ys[-1])
+        if len(xs) == 2:
+            return _clip_vol(float(np.interp(x, xs, ys)))
+        return _clip_vol(float(PchipInterpolator(xs, ys, extrapolate=False)(x)))
+
+    atm_vol = _vol_on_nodes(forward)
+    strike_atm = forward
+    input_nodes = tuple((float(k), float(v)) for k, v in zip(strikes, vols))
+
+    def _delta_node(target_delta: float) -> tuple[float, float]:
+        vol = atm_vol
+        strike = _forward_delta_strike(forward, vol, t, target_delta)
+        for _ in range(4):
+            vol = _vol_on_nodes(strike)
+            strike = _forward_delta_strike(forward, vol, t, target_delta)
+        return float(strike), float(vol)
+
+    strike_10p, vol_10p = _delta_node(0.90)
+    strike_25p, vol_25p = _delta_node(0.75)
+    strike_25c, vol_25c = _delta_node(0.25)
+    strike_10c, vol_10c = _delta_node(0.10)
+    warnings.append(
+        f"Custom smile: {len(input_nodes)} input points; other strikes interpolated "
+        "in log-moneyness, flat outside the wings."
+    )
+    return VolSmile(
+        spot=float(spot),
+        forward=forward,
+        t=t,
+        atm_vol=atm_vol,
+        vol_10d_put=vol_10p,
+        vol_25d_put=vol_25p,
+        vol_25d_call=vol_25c,
+        vol_10d_call=vol_10c,
+        strike_10d_put=strike_10p,
+        strike_25d_put=strike_25p,
+        strike_atm=float(strike_atm),
+        strike_25d_call=strike_25c,
+        strike_10d_call=strike_10c,
+        nodes_x=tuple(float(v) for v in xs),
+        nodes_vol=tuple(float(v) for v in ys),
+        coeffs=(atm_vol, 0.0, 0.0),
+        ten_delta_source="custom",
+        warnings=tuple(warnings),
+        source="custom",
+        input_nodes=input_nodes,
+    )
+
+
+def smile_from_request(request, t: float) -> VolSmile:
+    source = getattr(request, "smile_source", "quotes")
+    source_value = getattr(source, "value", source)
+    if source_value == "custom":
+        points = [(p.strike, p.vol) for p in (request.custom_vols or [])]
+        return build_smile_from_points(
+            request.spot, request.rate, request.dividend, t, points
+        )
+    return build_smile(
+        spot=request.spot,
+        rate=request.rate,
+        dividend=request.dividend,
+        t=t,
+        atm_vol=request.atm_vol,
+        rr_25d=request.rr_25d,
+        bf_25d=request.bf_25d,
+        rr_10d=request.rr_10d,
+        bf_10d=request.bf_10d,
     )
