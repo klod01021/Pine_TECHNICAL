@@ -1,0 +1,7 @@
+#!/bin/bash
+# macOS app entry: open Terminal so the server stays visible and stoppable.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+COMMAND="$ROOT/Launch Pricer.command"
+chmod +x "$COMMAND" 2>/dev/null || true
+open -a Terminal "$COMMAND"

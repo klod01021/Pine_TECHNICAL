@@ -8,14 +8,25 @@ Pricing uses [QuantLib](https://www.quantlib.org/) and [vollib](https://github.c
 
 ## Launch in a browser
 
+Install [Python 3](https://www.python.org/downloads/) once if it is not already on the machine. Then double-click the launcher for your OS (keep it in this project folder):
+
+| OS | Double-click |
+| --- | --- |
+| macOS | `Launch Pricer.command` or `Launch Pricer.app` |
+| Windows | `Launch Pricer.bat` |
+
+The first run creates a local `.venv`, installs QuantLib / vollib / FastAPI, starts the server, and opens [http://127.0.0.1:8000](http://127.0.0.1:8000). Leave the Terminal / Command Prompt window open. Press **Ctrl+C** there to stop the pricer.
+
+On macOS, if Gatekeeper blocks the file, right-click it and choose **Open**.
+
+From a terminal you can do the same thing with:
+
 ```bash
 python3 -m pip install -r requirements.txt
 python3 -m option_pricer
 ```
 
-That starts the app at [http://127.0.0.1:8000](http://127.0.0.1:8000) and opens your default browser.
-
-Equivalent:
+or:
 
 ```bash
 python3 launch.py
