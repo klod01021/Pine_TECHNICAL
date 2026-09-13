@@ -25,7 +25,7 @@
           </div>
         </div>
         <p class="lede">
-          Black–Scholes with ATM / 10Δ / 25Δ RR and butterfly smile. Cross-check with PDE and simplified Monte Carlo.
+          Black–Scholes with a full 10Δ / 25Δ / ATM vol surface. Every strike is priced; PDE and Monte Carlo use local vol.
         </p>
       </header>
 
@@ -137,21 +137,21 @@
                   <input type="radio" name="model" value="black_scholes" checked />
                   <span>
                     <strong>Black–Scholes</strong>
-                    <em>Analytic vanilla / barrier · Bjerksund–Stensland American</em>
+                    <em>Analytic vanilla / barrier on the strike’s smile vol</em>
                   </span>
                 </label>
                 <label>
                   <input type="radio" name="model" value="pde" />
                   <span>
                     <strong>PDE</strong>
-                    <em>QuantLib finite-difference Black–Scholes grid</em>
+                    <em>QuantLib finite-difference with local vol from the smile</em>
                   </span>
                 </label>
                 <label>
                   <input type="radio" name="model" value="monte_carlo" />
                   <span>
                     <strong>Monte Carlo</strong>
-                    <em>Simplified GBM · discrete barrier · Longstaff–Schwartz</em>
+                    <em>GBM with local vol at every spot · discrete barrier · LSM</em>
                   </span>
                 </label>
               </div>
@@ -225,6 +225,31 @@
           </article>
         </section>
       </main>
+
+      <article class="card surface-card">
+        <header class="card-head">
+          <h2>Vol surface</h2>
+          <span class="hint">Every strike uses its own implied vol from the 10Δ / 25Δ / ATM smile. Click a row to reprice that strike.</span>
+        </header>
+        <div class="table-scroll">
+          <table class="surface">
+            <thead>
+              <tr>
+                <th>Strike</th>
+                <th>Pillar</th>
+                <th>Vol</th>
+                <th>Call</th>
+                <th>Put</th>
+                <th>Call Δ</th>
+                <th>Put Δ</th>
+              </tr>
+            </thead>
+            <tbody id="surface-body">
+              <tr><td colspan="7" class="empty">No run yet</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
     </div>
     <script src="/static/app.js"></script>
   </body>

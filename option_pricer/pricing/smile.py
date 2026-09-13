@@ -99,23 +99,38 @@ class VolSmile:
     ten_delta_source: str
     warnings: tuple[str, ...] = ()
 
-    def vol_at(self, strike: float) -> float:
-        strike = float(strike)
-        if strike <= 0:
-            raise ValueError("strike must be positive")
-        x = float(np.log(strike / self.forward))
+    def __post_init__(self) -> None:
         xs = np.asarray(self.nodes_x, dtype=float)
         ys = np.asarray(self.nodes_vol, dtype=float)
-        if x <= xs[0]:
-            return _clip_vol(ys[0])
-        if x >= xs[-1]:
-            return _clip_vol(ys[-1])
-        if len(xs) == 1:
-            return _clip_vol(ys[0])
-        if len(xs) == 2:
-            return _clip_vol(float(np.interp(x, xs, ys)))
-        interpolator = PchipInterpolator(xs, ys, extrapolate=False)
-        return _clip_vol(float(interpolator(x)))
+        if len(xs) >= 3:
+            object.__setattr__(self, "_interp", PchipInterpolator(xs, ys, extrapolate=False))
+        else:
+            object.__setattr__(self, "_interp", None)
+
+    def vol_at(self, strike: float) -> float:
+        return float(self.vol_at_many(np.array([strike]))[0])
+
+    def vol_at_many(self, strikes) -> np.ndarray:
+        strikes = np.asarray(strikes, dtype=float)
+        if np.any(strikes <= 0):
+            raise ValueError("strike must be positive")
+        x = np.log(strikes / self.forward)
+        xs = np.asarray(self.nodes_x, dtype=float)
+        ys = np.asarray(self.nodes_vol, dtype=float)
+        out = np.empty_like(x, dtype=float)
+        lo = x <= xs[0]
+        hi = x >= xs[-1]
+        mid = ~lo & ~hi
+        out[lo] = ys[0]
+        out[hi] = ys[-1]
+        if mid.any():
+            if self._interp is not None:
+                out[mid] = self._interp(x[mid])
+            elif len(xs) == 1:
+                out[mid] = ys[0]
+            else:
+                out[mid] = np.interp(x[mid], xs, ys)
+        return np.clip(out, MIN_VOL, MAX_VOL)
 
     def curve(self, n: int = 61) -> SmileCurve:
         lo = min(self.strike_10d_put, self.spot * 0.55, self.strike_atm * 0.65)

@@ -221,6 +221,29 @@ function renderResult(data) {
   warningsEl.innerHTML = notes.map((n) => `<li>${n}</li>`).join("");
   renderSmile(data.smile, data.vol_used);
   renderPayoff(data.payoff);
+  renderSurface(data.surface || []);
+}
+
+function renderSurface(rows) {
+  const body = document.getElementById("surface-body");
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="7" class="empty">No surface</td></tr>`;
+    return;
+  }
+  body.innerHTML = rows
+    .map((row) => {
+      const cls = row.selected ? "selected" : "";
+      return `<tr class="${cls}" data-strike="${row.strike}">
+        <td>${fmt.format(row.strike)}</td>
+        <td>${row.pillar || ""}</td>
+        <td>${fmtPct(row.vol)}</td>
+        <td>${fmt.format(row.call)}</td>
+        <td>${fmt.format(row.put)}</td>
+        <td>${fmtNum(row.call_delta)}</td>
+        <td>${fmtNum(row.put_delta)}</td>
+      </tr>`;
+    })
+    .join("");
 }
 
 async function price() {
@@ -273,6 +296,13 @@ document.getElementById("tenor-chips").addEventListener("click", (event) => {
   if (!button) return;
   form.elements.expiry_days.value = button.dataset.days;
   document.querySelectorAll("#tenor-chips button").forEach((el) => el.classList.toggle("active", el === button));
+  schedulePrice();
+});
+
+document.getElementById("surface-body").addEventListener("click", (event) => {
+  const row = event.target.closest("tr[data-strike]");
+  if (!row) return;
+  form.elements.strike.value = row.dataset.strike;
   schedulePrice();
 });
 

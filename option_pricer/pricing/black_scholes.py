@@ -65,9 +65,10 @@ def price_black_scholes(
     barrier_kind: str | None = None,
     barrier: float | None = None,
     rebate: float = 0.0,
+    smile=None,
 ) -> dict:
     with quantlib_session(days) as (today, maturity):
-        market = build_market(today, maturity, spot, rate, dividend, vol)
+        market = build_market(today, maturity, spot, rate, dividend, vol, smile=smile)
         payoff = ql.PlainVanillaPayoff(option_type(is_call), strike)
 
         if style == "european":
@@ -82,7 +83,11 @@ def price_black_scholes(
                 "greeks": greeks,
                 "vollib_price": v_price,
                 "vollib_greeks": v_greeks.model_dump(),
-                "engine": "QuantLib AnalyticEuropeanEngine + vollib BSM",
+                "engine": (
+                    "QuantLib AnalyticEuropeanEngine + vollib BSM (vol at each strike)"
+                    if smile is not None
+                    else "QuantLib AnalyticEuropeanEngine + vollib BSM"
+                ),
             }
 
         if style == "american":
@@ -131,13 +136,15 @@ def _bump_greeks_quotes(market, option, vol: float) -> Greeks:
     delta = (up - dn) / (2.0 * ds)
     gamma = (up - 2.0 * base + dn) / (ds * ds)
 
-    dv = 0.0001
-    market.vol_quote.setValue(vol + dv)
-    v_up = float(option.NPV())
-    market.vol_quote.setValue(vol - dv)
-    v_dn = float(option.NPV())
-    market.vol_quote.setValue(vol)
-    vega = (v_up - v_dn) / (2.0 * dv) / 100.0
+    vega = None
+    if not getattr(market, "uses_smile", False):
+        dv = 0.0001
+        market.vol_quote.setValue(vol + dv)
+        v_up = float(option.NPV())
+        market.vol_quote.setValue(vol - dv)
+        v_dn = float(option.NPV())
+        market.vol_quote.setValue(vol)
+        vega = (v_up - v_dn) / (2.0 * dv) / 100.0
 
     r0 = market.rate_quote.value()
     dr = 1e-4

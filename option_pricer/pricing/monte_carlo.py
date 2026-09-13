@@ -13,6 +13,10 @@ def _intrinsic(spots: np.ndarray, strike: float, is_call: bool) -> np.ndarray:
     return np.maximum(strike - spots, 0.0)
 
 
+def _vols_from_smile(smile, spots, shift: float = 0.0) -> np.ndarray:
+    return smile.vol_at_many(spots) + shift
+
+
 def price_monte_carlo(
     *,
     t: float,
@@ -30,6 +34,7 @@ def price_monte_carlo(
     barrier: float | None = None,
     rebate: float = 0.0,
     with_greeks: bool = True,
+    smile=None,
 ) -> dict:
     rng = np.random.default_rng(seed)
     price, stderr = _price_once(
@@ -47,6 +52,8 @@ def price_monte_carlo(
         barrier_kind,
         barrier,
         rebate,
+        smile,
+        0.0,
     )
     greeks = (
         _mc_greeks(
@@ -65,15 +72,23 @@ def price_monte_carlo(
             barrier,
             rebate,
             price,
+            smile,
         )
         if with_greeks
         else Greeks()
     )
-    engine = {
-        "european": "Simplified Monte Carlo (terminal GBM)",
-        "american": "Simplified Monte Carlo (Longstaff-Schwartz)",
-        "barrier": "Simplified Monte Carlo (discrete barrier monitoring)",
-    }[style]
+    if smile is not None:
+        engine = {
+            "european": "Simplified Monte Carlo (local vol from full smile)",
+            "american": "Simplified Monte Carlo (LSM, local vol from smile)",
+            "barrier": "Simplified Monte Carlo (discrete barrier, local vol from smile)",
+        }[style]
+    else:
+        engine = {
+            "european": "Simplified Monte Carlo (terminal GBM)",
+            "american": "Simplified Monte Carlo (Longstaff-Schwartz)",
+            "barrier": "Simplified Monte Carlo (discrete barrier monitoring)",
+        }[style]
     return {
         "price": float(price),
         "std_error": float(stderr),
@@ -99,12 +114,20 @@ def _price_once(
     barrier_kind,
     barrier,
     rebate,
+    smile=None,
+    vol_shift: float = 0.0,
 ) -> tuple[float, float]:
+    if style == "european" and smile is None:
+        return _european(rng, t, spot, strike, rate, dividend, vol + vol_shift, is_call, paths)
     if style == "european":
-        return _european(rng, t, spot, strike, rate, dividend, vol, is_call, paths)
+        spots = _simulate_paths(
+            rng, t, spot, rate, dividend, vol, paths, steps, smile, vol_shift
+        )
+        payoff = _intrinsic(spots[-1], strike, is_call) * np.exp(-rate * t)
+        return float(payoff.mean()), float(payoff.std(ddof=1) / np.sqrt(paths))
     if style == "american":
         return _american_lsm(
-            rng, t, spot, strike, rate, dividend, vol, is_call, paths, steps
+            rng, t, spot, strike, rate, dividend, vol, is_call, paths, steps, smile, vol_shift
         )
     return _barrier(
         rng,
@@ -120,6 +143,8 @@ def _price_once(
         barrier_kind,
         barrier,
         rebate,
+        smile,
+        vol_shift,
     )
 
 
@@ -130,20 +155,47 @@ def _european(rng, t, spot, strike, rate, dividend, vol, is_call, paths):
     return float(payoff.mean()), float(payoff.std(ddof=1) / np.sqrt(paths))
 
 
-def _simulate_paths(rng, t, spot, rate, dividend, vol, paths, steps) -> np.ndarray:
+def _simulate_paths(
+    rng,
+    t,
+    spot,
+    rate,
+    dividend,
+    vol,
+    paths,
+    steps,
+    smile=None,
+    vol_shift: float = 0.0,
+) -> np.ndarray:
     dt = t / steps
-    drift = (rate - dividend - 0.5 * vol * vol) * dt
-    shock = vol * np.sqrt(dt)
-    log_s = np.empty((steps + 1, paths))
-    log_s[0] = np.log(spot)
+    sqrt_dt = np.sqrt(dt)
+    spots = np.empty((steps + 1, paths))
+    spots[0] = spot
     z = rng.standard_normal((steps, paths))
+    if smile is None:
+        sig = vol + vol_shift
+        drift = (rate - dividend - 0.5 * sig * sig) * dt
+        shock = sig * sqrt_dt
+        log_s = np.full(paths, np.log(spot))
+        for i in range(steps):
+            log_s = log_s + drift + shock * z[i]
+            spots[i + 1] = np.exp(log_s)
+        return spots
+
+    s = np.full(paths, float(spot))
     for i in range(steps):
-        log_s[i + 1] = log_s[i] + drift + shock * z[i]
-    return np.exp(log_s)
+        sig = np.clip(_vols_from_smile(smile, s, vol_shift), 1e-4, 5.0)
+        s = s * np.exp((rate - dividend - 0.5 * sig * sig) * dt + sig * sqrt_dt * z[i])
+        spots[i + 1] = s
+    return spots
 
 
-def _american_lsm(rng, t, spot, strike, rate, dividend, vol, is_call, paths, steps):
-    spots = _simulate_paths(rng, t, spot, rate, dividend, vol, paths, steps)
+def _american_lsm(
+    rng, t, spot, strike, rate, dividend, vol, is_call, paths, steps, smile=None, vol_shift=0.0
+):
+    spots = _simulate_paths(
+        rng, t, spot, rate, dividend, vol, paths, steps, smile, vol_shift
+    )
     dt = t / steps
     df = np.exp(-rate * dt)
     cash = _intrinsic(spots[-1], strike, is_call)
@@ -166,7 +218,6 @@ def _american_lsm(rng, t, spot, strike, rate, dividend, vol, is_call, paths, ste
             continuation[mask] = chosen
         cash = continuation
     cash = cash * df
-    # Compare with immediate exercise at t=0
     cash = np.maximum(cash, _intrinsic(np.full(paths, spot), strike, is_call))
     return float(cash.mean()), float(cash.std(ddof=1) / np.sqrt(paths))
 
@@ -185,8 +236,12 @@ def _barrier(
     barrier_kind,
     barrier,
     rebate,
+    smile=None,
+    vol_shift=0.0,
 ):
-    spots = _simulate_paths(rng, t, spot, rate, dividend, vol, paths, steps)
+    spots = _simulate_paths(
+        rng, t, spot, rate, dividend, vol, paths, steps, smile, vol_shift
+    )
     if barrier_kind.startswith("up"):
         hit = np.any(spots >= barrier, axis=0)
     else:
@@ -217,6 +272,7 @@ def _mc_greeks(
     barrier,
     rebate,
     base_price,
+    smile=None,
 ) -> Greeks:
     def run(**overrides):
         rng = np.random.default_rng(seed)
@@ -234,6 +290,8 @@ def _mc_greeks(
             barrier_kind=barrier_kind,
             barrier=barrier,
             rebate=rebate,
+            smile=smile,
+            vol_shift=0.0,
         )
         kwargs.update(overrides)
         price, _ = _price_once(rng, **kwargs)
@@ -245,9 +303,8 @@ def _mc_greeks(
     delta = (up - dn) / (2.0 * ds)
     gamma = (up - 2.0 * base_price + dn) / (ds * ds)
 
-    dv = 0.01
-    v_up = run(vol=vol + dv)
-    vega = v_up - base_price  # vol bumped by 1 point → trader vega
+    v_up = run(vol_shift=0.01)
+    vega = v_up - base_price
 
     dt = min(1.0 / 365.0, t * 0.05)
     if t - dt > 1e-6:

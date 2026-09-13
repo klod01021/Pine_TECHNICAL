@@ -69,6 +69,7 @@ class PriceRequest(BaseModel):
     pde_spot_steps: int = Field(default=200, ge=50, le=600)
     compare_models: bool = True
     seed: int = 42
+    surface_points: int = Field(default=23, ge=11, le=61)
 
     @model_validator(mode="after")
     def validate_barrier_fields(self) -> "PriceRequest":
@@ -99,6 +100,17 @@ class SmilePillar(BaseModel):
     delta: Optional[float] = None
     strike: float
     vol: float
+
+
+class SurfaceRow(BaseModel):
+    strike: float
+    vol: float
+    call: float
+    put: float
+    call_delta: Optional[float] = None
+    put_delta: Optional[float] = None
+    pillar: Optional[str] = None
+    selected: bool = False
 
 
 class SmileCurve(BaseModel):
@@ -135,3 +147,4 @@ class PriceResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     details: dict = Field(default_factory=dict)
     payoff: dict = Field(default_factory=dict)
+    surface: list[SurfaceRow] = Field(default_factory=list)

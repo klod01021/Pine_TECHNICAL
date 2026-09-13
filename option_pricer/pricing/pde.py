@@ -30,18 +30,30 @@ def price_pde(
     barrier_kind: str | None = None,
     barrier: float | None = None,
     rebate: float = 0.0,
+    smile=None,
 ) -> dict:
     with quantlib_session(days) as (today, maturity):
-        market = build_market(today, maturity, spot, rate, dividend, vol)
+        market = build_market(today, maturity, spot, rate, dividend, vol, smile=smile)
         payoff = ql.PlainVanillaPayoff(option_type(is_call), strike)
+        scheme = ql.FdmSchemeDesc.Douglas()
+        use_local = smile is not None
+        overwrite = max(float(vol), 0.05)
+        if smile is not None:
+            overwrite = max(overwrite, float(smile.atm_vol))
 
         if style == "american":
             exercise = ql.AmericanExercise(today, maturity)
             option = ql.VanillaOption(payoff, exercise)
             option.setPricingEngine(
-                ql.FdBlackScholesVanillaEngine(market.process, time_steps, spot_steps)
+                ql.FdBlackScholesVanillaEngine(
+                    market.process, time_steps, spot_steps, 0, scheme, use_local, overwrite
+                )
             )
-            engine_name = "QuantLib FdBlackScholesVanillaEngine (American)"
+            engine_name = (
+                "QuantLib FdBlackScholesVanillaEngine (American, local vol surface)"
+                if use_local
+                else "QuantLib FdBlackScholesVanillaEngine (American)"
+            )
         elif style == "barrier":
             exercise = ql.EuropeanExercise(maturity)
             option = ql.BarrierOption(
@@ -52,16 +64,28 @@ def price_pde(
                 exercise,
             )
             option.setPricingEngine(
-                ql.FdBlackScholesBarrierEngine(market.process, time_steps, spot_steps)
+                ql.FdBlackScholesBarrierEngine(
+                    market.process, time_steps, spot_steps, 0, scheme, use_local, overwrite
+                )
             )
-            engine_name = "QuantLib FdBlackScholesBarrierEngine"
+            engine_name = (
+                "QuantLib FdBlackScholesBarrierEngine (local vol surface)"
+                if use_local
+                else "QuantLib FdBlackScholesBarrierEngine"
+            )
         else:
             exercise = ql.EuropeanExercise(maturity)
             option = ql.VanillaOption(payoff, exercise)
             option.setPricingEngine(
-                ql.FdBlackScholesVanillaEngine(market.process, time_steps, spot_steps)
+                ql.FdBlackScholesVanillaEngine(
+                    market.process, time_steps, spot_steps, 0, scheme, use_local, overwrite
+                )
             )
-            engine_name = "QuantLib FdBlackScholesVanillaEngine (European)"
+            engine_name = (
+                "QuantLib FdBlackScholesVanillaEngine (European, local vol surface)"
+                if use_local
+                else "QuantLib FdBlackScholesVanillaEngine (European)"
+            )
 
         price = float(option.NPV())
         greeks = Greeks(**read_greeks(option))

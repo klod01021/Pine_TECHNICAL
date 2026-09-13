@@ -14,6 +14,7 @@ from option_pricer.pricing.schemas import (
     PriceResponse,
 )
 from option_pricer.pricing.smile import build_smile
+from option_pricer.pricing.surface import build_surface
 
 MODEL_LABELS = {
     ModelName.black_scholes: "Black-Scholes",
@@ -49,6 +50,10 @@ def price_option(request: PriceRequest) -> PriceResponse:
         warnings.append(
             "Black-Scholes uses a continuous barrier; Monte Carlo monitors the barrier on a discrete grid."
         )
+    warnings.append(
+        "The vol surface prices every listed strike with its own implied vol. "
+        "PDE and Monte Carlo use that smile as local vol along the spot path."
+    )
 
     primary = _run_model(
         request.model,
@@ -59,6 +64,7 @@ def price_option(request: PriceRequest) -> PriceResponse:
         is_call=is_call,
         style=style,
         barrier_kind=barrier_kind,
+        smile=smile,
     )
 
     comparison: list[ModelQuote] = []
@@ -86,6 +92,7 @@ def price_option(request: PriceRequest) -> PriceResponse:
                     style=style,
                     barrier_kind=barrier_kind,
                     with_greeks=False,
+                    smile=smile,
                 )
                 comparison.append(
                     ModelQuote(
@@ -119,6 +126,15 @@ def price_option(request: PriceRequest) -> PriceResponse:
         )
 
     payoff = _payoff_curve(request, vol, t, is_call, style, barrier_kind)
+    surface = build_surface(
+        smile,
+        spot=request.spot,
+        rate=request.rate,
+        dividend=request.dividend,
+        t=t,
+        selected_strike=request.strike,
+        n=request.surface_points,
+    )
 
     details = {
         "day_count": "Actual/365",
@@ -149,6 +165,7 @@ def price_option(request: PriceRequest) -> PriceResponse:
         warnings=warnings,
         details=details,
         payoff=payoff,
+        surface=surface,
     )
 
 
@@ -163,6 +180,7 @@ def _run_model(
     style: str,
     barrier_kind: str | None,
     with_greeks: bool = True,
+    smile=None,
 ) -> dict:
     common = dict(
         spot=request.spot,
@@ -175,6 +193,7 @@ def _run_model(
         barrier_kind=barrier_kind,
         barrier=request.barrier,
         rebate=request.rebate,
+        smile=smile,
     )
     if model is ModelName.black_scholes:
         result = price_black_scholes(days=days, t=t, **common)

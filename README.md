@@ -52,7 +52,9 @@ python3 -m option_pricer --no-browser
 | Rate | Continuous risk-free rate |
 | Dividend / q | Continuous dividend yield (or foreign rate) |
 
-Wing vols are mapped to strikes with forward delta. The five pillars (10Δ put, 25Δ put, ATM, 25Δ call, 10Δ call) are interpolated in log-moneyness with a shape-preserving spline. If 10Δ quotes are omitted, those wings are implied from the 25Δ quadratic. Each contract is priced with the smile vol at its strike (sticky strike).
+Wing vols are mapped to strikes with forward delta. The five pillars (10Δ put, 25Δ put, ATM, 25Δ call, 10Δ call) are interpolated in log-moneyness with a shape-preserving spline. If 10Δ quotes are omitted, those wings are implied from the 25Δ quadratic.
+
+The pricer builds the **full smile at every listed strike**: each row has its own implied vol plus European call and put prices. The selected contract uses that strike’s vol under Black–Scholes. **PDE** and **Monte Carlo** use the smile as local volatility along the spot path, not a single flat vol.
 
 ## Contracts and models
 

@@ -13,6 +13,7 @@ def test_health_and_index():
     assert "Option Pricer" in home.text
     assert "10Δ risk reversal" in home.text
     assert "25Δ risk reversal" in home.text
+    assert "Vol surface" in home.text
 
 
 def test_price_european_call_api():
@@ -40,6 +41,8 @@ def test_price_european_call_api():
     labels = {row["model"] for row in body["comparison"]}
     assert labels == {"black_scholes", "pde", "monte_carlo"}
     assert len(body["smile"]["strikes"]) > 10
+    assert len(body["surface"]) >= 11
+    assert any(row["selected"] for row in body["surface"])
     assert {p["label"] for p in body["smile"]["pillars"]} >= {
         "10Δ put",
         "25Δ put",
