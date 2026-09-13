@@ -143,8 +143,8 @@ function renderSwaps() {
     const fwdOffer = spotOffer + row.offer / scale;
     return `<tr>
       <th>${tenor}</th>
-      <td><input data-swap-bid="${tenor}" type="number" step="0.0001" value="${row.bid}" /></td>
-      <td><input data-swap-offer="${tenor}" type="number" step="0.0001" value="${row.offer}" /></td>
+      <td><input data-swap-bid="${tenor}" type="number" step="any" value="${row.bid}" /></td>
+      <td><input data-swap-offer="${tenor}" type="number" step="any" value="${row.offer}" /></td>
       <td class="fwd">${fmt.format(fwdBid)}</td>
       <td class="fwd">${fmt.format(fwdOffer)}</td>
     </tr>`;
@@ -160,8 +160,8 @@ function renderVolGrid() {
     .map((strike) => {
       const cells = TENORS.map((tenor) => {
         const cell = (desk.vols[String(strike)] || {})[tenor] || { bid: 20, offer: 20.2 };
-        return `<td><input data-vol-bid="${tenor}" type="number" step="0.01" min="0.01" value="${cell.bid}" /></td>
-          <td><input data-vol-offer="${tenor}" type="number" step="0.01" min="0.01" value="${cell.offer}" /></td>`;
+        return `<td><input data-vol-bid="${tenor}" type="number" step="any" min="0.01" value="${cell.bid}" /></td>
+          <td><input data-vol-offer="${tenor}" type="number" step="any" min="0.01" value="${cell.offer}" /></td>`;
       }).join("");
       return `<tr>
         <td class="strike-cell"><input class="pt-strike" type="number" step="0.0001" min="0.0001" value="${strike}" /></td>
