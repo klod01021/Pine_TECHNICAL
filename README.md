@@ -2,7 +2,9 @@
 
 Web-based option pricer for vanilla European, American, and single-barrier contracts.
 
-The main model is **Black–Scholes**. You can also price with a **PDE** (QuantLib finite difference) and a **simplified Monte Carlo**. The smile can be built from **ATM + 10Δ/25Δ risk reversal and butterfly** quotes, or from **your own strike / vol points** (the pricer interpolates the rest).
+The main model is **Black–Scholes**. You can also price with a **PDE** (QuantLib finite difference) and a **simplified Monte Carlo**.
+
+The **Pricer** page is just expiry date, strike, and a bid / offer price. The **Market** page is the editable **1M / 3M / 6M / 1Y** vol surface with **swap points** and bid / offer on every input.
 
 Pricing uses [QuantLib](https://www.quantlib.org/) and [vollib](https://github.com/vollib/vollib) (Black–Scholes–Merton prices, implied vol, and analytic Greeks).
 
@@ -39,28 +41,31 @@ python3 -m option_pricer --host 127.0.0.1 --port 8000
 python3 -m option_pricer --no-browser
 ```
 
-## Market inputs
+## Pricer page
 
 | Input | Meaning |
 | --- | --- |
-| Spot | Underlying price |
-| ATM vol | At-the-money implied volatility (quote mode) |
-| 25Δ RR | `vol(25Δ call) − vol(25Δ put)` |
-| 25Δ BF | `0.5 × (vol 25Δ call + vol 25Δ put) − ATM` |
-| 10Δ RR | `vol(10Δ call) − vol(10Δ put)` |
-| 10Δ BF | `0.5 × (vol 10Δ call + vol 10Δ put) − ATM` |
-| Custom points | Strike / implied-vol nodes you type yourself |
-| Rate | Continuous risk-free rate |
-| Dividend / q | Continuous dividend yield (or foreign rate) |
+| Date of expiry | Option maturity (1M / 3M / 6M / 1Y chips snap the date) |
+| Strike level | Strike to price |
+| Bid / Offer | Two-way premium from the bid and offer markets |
 
-Two ways to build the smile:
+Call / put is the only other control on this page.
 
-1. **RR / BF quotes** — wing vols are mapped to strikes with forward delta. The five pillars (10Δ put, 25Δ put, ATM, 25Δ call, 10Δ call) are interpolated in log-moneyness with a shape-preserving spline. If 10Δ quotes are omitted, those wings are implied from the 25Δ quadratic.
-2. **Custom points** — type (or paste) at least two strike / vol nodes. Those strikes are honored exactly. Every other strike is interpolated in log-moneyness (`ln(K/F)`, PCHIP when there are three or more points, linear when there are two). Outside the outermost input strikes the wings are held flat. Use **Load from RR / BF** to seed the editor from the current quotes.
+## Market page
 
-The pricer builds the **full smile at every listed strike**: each row has its own implied vol plus European call and put prices. Input rows are labeled in the surface table. The selected contract uses that strike’s vol under Black–Scholes. **PDE** and **Monte Carlo** use the smile as local volatility along the spot path, not a single flat vol.
+| Input | Meaning |
+| --- | --- |
+| Spot bid / offer | Underlying cash |
+| Rate bid / offer | Continuous discount rate |
+| Swap points | Per tenor, bid / offer. `Forward = spot + swap points / scale` |
+| Vol surface | Strike × 1M / 3M / 6M / 1Y cells, each bid / offer (percent in the UI) |
+| RR / BF quotes | Optional seed; **Load from RR / BF** writes pillars into the grid |
 
-API: set `smile_source` to `"custom"` and pass `custom_vols` as `[{ "strike": 80, "vol": 0.24 }, ...]` (vols as decimals). Quote-mode fields can still be sent; they are ignored while `smile_source` is `"custom"`.
+Swap points replace a typed dividend: `q` is implied so the forward matches. An expiry between two tenors interpolates **total variance** `σ²T` and the swap points. Outside 1M–1Y the wings stay flat.
+
+You can still send the older single-smile API (`atm_vol` + RR/BF, or `custom_vols`) with no `tenors` array. With a surface, POST `tenors` as 1M / 3M / 6M / 1Y slices of `{ swap_points: {bid, offer}, vols: [{strike, bid, offer}, ...] }` (vols as decimals). Optional `spot_bid` / `spot_offer` / `rate_bid` / `rate_offer` and `expiry_date` + `value_date`.
+
+The selected contract uses that strike’s interpolated vol under Black–Scholes. **PDE** and **Monte Carlo** use the smile as local volatility along the spot path.
 
 ## Contracts and models
 

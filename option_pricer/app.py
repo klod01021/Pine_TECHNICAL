@@ -46,9 +46,13 @@ def api_price(request: PriceRequest) -> PriceResponse:
 @app.post("/api/smile")
 def api_smile(request: PriceRequest) -> dict:
     _, t = year_fraction(request.expiry_years)
-    smile = smile_from_request(request, t)
+    smile = smile_from_request(request, t, "mid")
+    bid = smile_from_request(request, t, "bid")
+    offer = smile_from_request(request, t, "offer")
     return {
         "smile": smile.curve().model_dump(),
         "vol_at_strike": smile.vol_at(request.strike),
+        "vol_bid": bid.vol_at(request.strike),
+        "vol_offer": offer.vol_at(request.strike),
         "warnings": list(smile.warnings),
     }

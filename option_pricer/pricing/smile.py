@@ -368,7 +368,11 @@ def build_smile_from_points(
     )
 
 
-def smile_from_request(request, t: float) -> VolSmile:
+def smile_from_request(request, t: float, side: str = "mid") -> VolSmile:
+    from option_pricer.pricing.term_surface import has_tenor_surface, market_from_request
+
+    if has_tenor_surface(request):
+        return market_from_request(request, t, side).smile
     source = getattr(request, "smile_source", "quotes")
     source_value = getattr(source, "value", source)
     if source_value == "custom":
