@@ -107,6 +107,8 @@ function payload() {
     atm_vol: pct("atm_vol_pct"),
     rr_25d: pct("rr_pct"),
     bf_25d: pct("bf_pct"),
+    rr_10d: pct("rr_10_pct"),
+    bf_10d: pct("bf_10_pct"),
     expiry_years: Number(form.elements.expiry_days.value) / 365,
     option_style: style,
     option_type: selected("option_type"),
@@ -153,7 +155,7 @@ function renderSmile(smile, strikeVol) {
   });
   const pillarPoints = smile.pillars.map((p) => ({ x: Number(p.strike.toFixed(2)), y: p.vol }));
   smileChart.data.datasets[1] = {
-    label: "25Δ / ATM",
+    label: "10Δ / 25Δ / ATM",
     data: pillarPoints,
     showLine: false,
     pointRadius: 5,
@@ -213,7 +215,7 @@ function renderResult(data) {
 
   const notes = [
     "Greeks: vega per 1 vol point, theta per day, rho per 1% rate.",
-    `Fitted 25Δ put vol ${fmtPct(data.smile.vol_25d_put)}, ATM ${fmtPct(data.smile.vol_atm)}, 25Δ call ${fmtPct(data.smile.vol_25d_call)}.`,
+    `Fitted 10Δ put ${fmtPct(data.smile.vol_10d_put)}, 25Δ put ${fmtPct(data.smile.vol_25d_put)}, ATM ${fmtPct(data.smile.vol_atm)}, 25Δ call ${fmtPct(data.smile.vol_25d_call)}, 10Δ call ${fmtPct(data.smile.vol_10d_call)}.`,
     ...(data.warnings || []),
   ];
   warningsEl.innerHTML = notes.map((n) => `<li>${n}</li>`).join("");

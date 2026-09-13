@@ -54,6 +54,8 @@ def api_smile(request: PriceRequest) -> dict:
         atm_vol=request.atm_vol,
         rr_25d=request.rr_25d,
         bf_25d=request.bf_25d,
+        rr_10d=request.rr_10d,
+        bf_10d=request.bf_10d,
     )
     return {
         "smile": smile.curve().model_dump(),

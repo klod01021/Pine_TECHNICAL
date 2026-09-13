@@ -46,6 +46,16 @@ class PriceRequest(BaseModel):
     bf_25d: float = Field(
         description="25-delta butterfly: 0.5*(vol25c+vol25p) - atm, decimal"
     )
+    rr_10d: Optional[float] = Field(
+        default=None,
+        description="10-delta risk reversal: vol(10d call) - vol(10d put), decimal. "
+        "Omit to imply 10Δ from the 25Δ smile.",
+    )
+    bf_10d: Optional[float] = Field(
+        default=None,
+        description="10-delta butterfly: 0.5*(vol10c+vol10p) - atm, decimal. "
+        "Omit to imply 10Δ from the 25Δ smile.",
+    )
     expiry_years: float = Field(gt=0, le=30)
     option_style: OptionStyle = OptionStyle.european
     option_type: OptionType = OptionType.call
@@ -95,9 +105,11 @@ class SmileCurve(BaseModel):
     strikes: list[float]
     vols: list[float]
     pillars: list[SmilePillar]
+    vol_10d_put: float
     vol_25d_put: float
     vol_atm: float
     vol_25d_call: float
+    vol_10d_call: float
     forward: float
 
 

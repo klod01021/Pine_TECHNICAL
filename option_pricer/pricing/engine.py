@@ -32,6 +32,8 @@ def price_option(request: PriceRequest) -> PriceResponse:
         atm_vol=request.atm_vol,
         rr_25d=request.rr_25d,
         bf_25d=request.bf_25d,
+        rr_10d=request.rr_10d,
+        bf_10d=request.bf_10d,
     )
     vol = smile.vol_at(request.strike)
     warnings = list(smile.warnings)
@@ -123,8 +125,11 @@ def price_option(request: PriceRequest) -> PriceResponse:
         "time_years": t,
         "days": days,
         "engine": primary.get("engine"),
+        "vol_10d_put": smile.vol_10d_put,
         "vol_25d_put": smile.vol_25d_put,
         "vol_25d_call": smile.vol_25d_call,
+        "vol_10d_call": smile.vol_10d_call,
+        "ten_delta_source": smile.ten_delta_source,
         "strike_vol": vol,
         "paths": primary.get("paths"),
         "steps": primary.get("steps"),

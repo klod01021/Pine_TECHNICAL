@@ -2,7 +2,7 @@
 
 Web-based option pricer for vanilla European, American, and single-barrier contracts.
 
-The main model is **Black–Scholes**. You can also price with a **PDE** (QuantLib finite difference) and a **simplified Monte Carlo**. The smile is built from **spot**, **ATM vol**, **25Δ risk reversal**, and **25Δ butterfly**.
+The main model is **Black–Scholes**. You can also price with a **PDE** (QuantLib finite difference) and a **simplified Monte Carlo**. The smile is built from **spot**, **ATM vol**, **10Δ and 25Δ risk reversal**, and **10Δ and 25Δ butterfly**.
 
 Pricing uses [QuantLib](https://www.quantlib.org/) and [vollib](https://github.com/vollib/vollib) (Black–Scholes–Merton prices, implied vol, and analytic Greeks).
 
@@ -36,10 +36,12 @@ python3 -m option_pricer --no-browser
 | ATM vol | At-the-money implied volatility |
 | 25Δ RR | `vol(25Δ call) − vol(25Δ put)` |
 | 25Δ BF | `0.5 × (vol 25Δ call + vol 25Δ put) − ATM` |
+| 10Δ RR | `vol(10Δ call) − vol(10Δ put)` |
+| 10Δ BF | `0.5 × (vol 10Δ call + vol 10Δ put) − ATM` |
 | Rate | Continuous risk-free rate |
 | Dividend / q | Continuous dividend yield (or foreign rate) |
 
-Wing vols are mapped to strikes with forward delta. A quadratic in log-moneyness `ln(K/F)` is fitted through the three pillars. Each contract is priced with the smile vol at its strike (sticky strike).
+Wing vols are mapped to strikes with forward delta. The five pillars (10Δ put, 25Δ put, ATM, 25Δ call, 10Δ call) are interpolated in log-moneyness with a shape-preserving spline. If 10Δ quotes are omitted, those wings are implied from the 25Δ quadratic. Each contract is priced with the smile vol at its strike (sticky strike).
 
 ## Contracts and models
 
